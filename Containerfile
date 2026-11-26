@@ -19,3 +19,4 @@ COPY --from=build /out/gen-ai-prv /gen-ai-prv
 
 USER 10001:10001
 ENTRYPOINT ["/gen-ai-prv"]
+CMD ["serve", "--host", "0.0.0.0"]
