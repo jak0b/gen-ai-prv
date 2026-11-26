@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -56,7 +57,7 @@ func newServeCommand() *cobra.Command {
 
 func runServeCommand(addr string) error {
 	envAPIKey, envSet := os.LookupEnv(apiKeyName)
-	apiKey, _, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, func() (string, error) {
+	apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, func() (string, error) {
 		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
 	})
 	if err != nil {
@@ -67,7 +68,8 @@ func runServeCommand(addr string) error {
 		Addr:    addr,
 		Handler: newServeHandler(apiKey, checkFile),
 	}
-	fmt.Fprintf(os.Stderr, "Serving at http://%s\n", addr)
+	log.Print(apiKeySourceMessage(source))
+	log.Printf("Serving at http://%s", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("start server: %w", err)
 	}

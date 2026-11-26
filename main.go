@@ -70,14 +70,7 @@ func newRootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			switch source {
-			case apiKeySourceEnvironment:
-				fmt.Fprintf(cmd.ErrOrStderr(), "Using API key from environment variable %s.\n", apiKeyName)
-			case apiKeySourceKeyring:
-				fmt.Fprintln(cmd.ErrOrStderr(), "Using API key from OS keyring.")
-			case apiKeySourcePrompt:
-				fmt.Fprintln(cmd.ErrOrStderr(), "Using interactively entered API key (saved to OS keyring).")
-			}
+			fmt.Fprintln(cmd.ErrOrStderr(), apiKeySourceMessage(source))
 
 			results, err := checkFiles(context.Background(), paths, apiKey, checkFile)
 			if err != nil {
@@ -113,6 +106,19 @@ func newRootCommand() *cobra.Command {
 	root.Flags().BoolVar(&jsonOutput, "json", false, "print the complete API response as JSON")
 	root.AddCommand(newServeCommand())
 	return root
+}
+
+func apiKeySourceMessage(source apiKeySource) string {
+	switch source {
+	case apiKeySourceEnvironment:
+		return fmt.Sprintf("Using API key from environment variable %s.", apiKeyName)
+	case apiKeySourceKeyring:
+		return "Using API key from OS keyring."
+	case apiKeySourcePrompt:
+		return "Using interactively entered API key (saved to OS keyring)."
+	default:
+		return ""
+	}
 }
 
 type fileCheckResult struct {

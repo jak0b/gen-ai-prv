@@ -135,6 +135,22 @@ func TestResolveAPIKeyPromptsAndSaves(t *testing.T) {
 	}
 }
 
+func TestAPIKeySourceMessage(t *testing.T) {
+	tests := []struct {
+		source apiKeySource
+		want   string
+	}{
+		{apiKeySourceEnvironment, "Using API key from environment variable OPENAI_API_KEY."},
+		{apiKeySourceKeyring, "Using API key from OS keyring."},
+		{apiKeySourcePrompt, "Using interactively entered API key (saved to OS keyring)."},
+	}
+	for _, test := range tests {
+		if got := apiKeySourceMessage(test.source); got != test.want {
+			t.Errorf("apiKeySourceMessage(%q) = %q, want %q", test.source, got, test.want)
+		}
+	}
+}
+
 func TestContentTypeFor(t *testing.T) {
 	tests := []struct {
 		path string
