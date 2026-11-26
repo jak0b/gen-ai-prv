@@ -177,6 +177,69 @@ form {
   place-items: center;
 }
 
+.file-summary {
+  padding: 16px 18px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.file-summary[hidden] {
+  display: none;
+}
+
+.file-summary-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-summary h2 {
+  margin: 0;
+  color: var(--heading);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.file-count {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.file-list {
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+}
+
+.file-list li {
+  display: flex;
+  min-width: 0;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.file-name {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.file-meta {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+}
+
 button[type="submit"] {
   min-height: 44px;
   margin-top: 12px;
@@ -306,6 +369,16 @@ button[type="submit"]:hover {
 
   .drop-zone {
     min-height: 185px;
+  }
+
+  .file-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .file-meta {
+    text-align: left;
   }
 
   .result {

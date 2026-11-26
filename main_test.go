@@ -260,8 +260,17 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "Drag files here") {
 		t.Fatal("embedded frontend is missing the drag-and-drop file chooser")
 	}
-	if got := response.Header().Get("Content-Security-Policy"); !strings.Contains(got, "style-src 'self'") {
-		t.Errorf("Content-Security-Policy = %q, want local styles only", got)
+	if !strings.Contains(response.Body.String(), `src="/app.js"`) {
+		t.Fatal("embedded frontend is missing the file summary script")
+	}
+	if got := response.Header().Get("Content-Security-Policy"); !strings.Contains(got, "style-src 'self'") || !strings.Contains(got, "script-src 'self'") {
+		t.Errorf("Content-Security-Policy = %q, want local styles and scripts only", got)
+	}
+
+	scriptResponse := httptest.NewRecorder()
+	handler.ServeHTTP(scriptResponse, httptest.NewRequest(http.MethodGet, "/app.js", nil))
+	if scriptResponse.Code != http.StatusOK || !strings.Contains(scriptResponse.Body.String(), "formatSize") {
+		t.Errorf("GET /app.js status = %d, body = %q", scriptResponse.Code, scriptResponse.Body.String())
 	}
 }
 

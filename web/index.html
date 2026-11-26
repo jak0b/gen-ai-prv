@@ -13,15 +13,23 @@
       <p class="intro">Check images, audio, and PDFs for supported OpenAI provenance signals.</p>
       <form action="/check" method="post" enctype="multipart/form-data">
         <label class="drop-zone">
-          <input type="file" name="files" accept=".png,.jpg,.jpeg,.webp,.gif,.mp3,.opus,.aac,.flac,.wav,.pcm,.pdf" multiple required>
+          <input id="file-input" type="file" name="files" accept=".png,.jpg,.jpeg,.webp,.gif,.mp3,.opus,.aac,.flac,.wav,.pcm,.pdf" multiple required>
           <span class="drop-icon" aria-hidden="true">＋</span>
           <strong>Drag files here</strong>
           <span>or click to browse · up to 10 files</span>
         </label>
+        <section class="file-summary" id="file-summary" aria-live="polite" hidden>
+          <div class="file-summary-heading">
+            <h2>Files ready to check</h2>
+            <span class="file-count" id="file-count"></span>
+          </div>
+          <ul class="file-list" id="file-list"></ul>
+        </section>
         <button type="submit">Check files</button>
       </form>
       <p class="note">Uploads are sent to the OpenAI Content Provenance API. Maximum 50 MiB per file.</p>
       <p class="disclaimer">This is not a general-purpose AI detector. A result with no signal does not prove content was made by a person.</p>
     </main>
+    <script src="/app.js" defer></script>
   </body>
 </html>

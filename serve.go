@@ -81,6 +81,10 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 		setServeHeaders(w)
 		http.ServeFileFS(w, r, webFiles, "web/style.css")
 	})
+	mux.HandleFunc("GET /app.js", func(w http.ResponseWriter, r *http.Request) {
+		setServeHeaders(w)
+		http.ServeFileFS(w, r, webFiles, "web/app.js")
+	})
 	mux.HandleFunc("POST /check", func(w http.ResponseWriter, r *http.Request) {
 		setServeHeaders(w)
 		r.Body = http.MaxBytesReader(w, r.Body, maxServeRequest)
@@ -135,7 +139,7 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 
 func setServeHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'none'; object-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 }
 
 func writeServePage(w http.ResponseWriter, page servePage, status int) {
