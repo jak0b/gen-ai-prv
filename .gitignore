@@ -1,0 +1,7 @@
+# Go build output
+/gen-ai-prv
+*.test
+coverage.out
+
+# macOS
+.DS_Store
