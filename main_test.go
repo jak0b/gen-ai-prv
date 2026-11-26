@@ -397,6 +397,13 @@ func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
 	}
 }
 
+func TestServeConfigAddressSupportsDualStackWildcard(t *testing.T) {
+	config := serveConfig{Host: ":", Port: defaultServePort}
+	if got, want := config.address(), ":8080"; got != want {
+		t.Errorf("address() = %q, want %q", got, want)
+	}
+}
+
 func TestRunServeCommandValidatesServerSettings(t *testing.T) {
 	tests := []struct {
 		name   string

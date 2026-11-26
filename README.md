@@ -35,6 +35,9 @@ CSS from the executable (no extra frontend files are needed). It uses
 ./gen-ai-prv serve --host example.com --port 8443 --tls-cert server.crt --tls-key server.key
 ```
 
+Use `--host :` to listen on all interfaces; Go's TCP listener uses a dual-stack
+wildcard where supported, accepting both IPv4 and IPv6 connections.
+
 TLS is enabled when both certificate and key are provided. Settings may also be
 provided in `gen-ai-prv.yaml` in the current directory, `~/.config/gen-ai-prv/`,
 or the home directory. Use `--config path/to/config.yaml` to select another

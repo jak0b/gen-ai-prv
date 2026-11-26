@@ -145,7 +145,13 @@ type serveConfig struct {
 }
 
 func (config serveConfig) address() string {
-	return net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
+	host := config.Host
+	if host == ":" {
+		// A colon-only host is commonly used to mean "all interfaces". Passing
+		// it through JoinHostPort would produce the invalid address "[:]".
+		host = ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(config.Port))
 }
 
 func runServeCommand(config serveConfig) error {
