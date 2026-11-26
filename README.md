@@ -68,9 +68,10 @@ and PDF. Inputs must be non-empty regular files up to 50 MiB; audio must be
 60 seconds or shorter after decoding. Media type is inferred from the extension
 (Opus uses `audio/ogg`); uploads use a generic ASCII filename.
 
-File contents are uploaded to OpenAI for checking. The web server temporarily
-stages each upload locally and removes it after the check. Review the API's
-documentation and data controls before sending sensitive content.
+File contents are uploaded to OpenAI for checking. The web server holds each
+upload in memory (up to 50 MiB) while processing it and does not stage uploads
+in temporary files. Review the API's documentation and data controls before
+sending sensitive content.
 
 ## Container
 

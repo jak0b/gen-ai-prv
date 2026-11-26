@@ -138,6 +138,8 @@ type fileCheckResult struct {
 
 type fileCheckFunc func(context.Context, string, string) (checkResponse, error)
 
+type uploadedFileCheckFunc func(context.Context, string, []byte, string) (checkResponse, error)
+
 func checkFiles(ctx context.Context, paths []string, apiKey string, check fileCheckFunc) ([]fileCheckResult, error) {
 	results := make([]fileCheckResult, 0, len(paths))
 	for _, path := range paths {

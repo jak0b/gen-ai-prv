@@ -100,7 +100,7 @@ func runServeCommand(config serveConfig, webFiles fs.FS, settings *viper.Viper) 
 
 	server := &http.Server{
 		Addr:    config.address(),
-		Handler: newServeHandler(apiKey, checkFile, webFiles),
+		Handler: newServeHandler(apiKey, checkUploadedFileData, webFiles),
 	}
 	log.Print(apiKeySourceMessage(source))
 	scheme := "http"

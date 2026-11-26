@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -207,6 +208,45 @@ func TestCheckFileReturnsTooManyRequestsError(t *testing.T) {
 	}
 }
 
+func TestCheckUploadedFileDataSendsInMemoryContent(t *testing.T) {
+	wantData := []byte("image data")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer api-key" {
+			t.Errorf("Authorization = %q, want Bearer api-key", got)
+		}
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("MultipartReader() error = %v", err)
+		}
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Fatalf("NextPart() error = %v", err)
+		}
+		if got := part.FormName(); got != "file" {
+			t.Errorf("multipart field name = %q, want file", got)
+		}
+		if got := part.FileName(); got != "upload.png" {
+			t.Errorf("multipart filename = %q, want upload.png", got)
+		}
+		if got := part.Header.Get("Content-Type"); got != "image/png" {
+			t.Errorf("part Content-Type = %q, want image/png", got)
+		}
+		data, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatalf("ReadAll(part) error = %v", err)
+		}
+		if !bytes.Equal(data, wantData) {
+			t.Errorf("uploaded content = %q, want %q", data, wantData)
+		}
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer server.Close()
+
+	if _, err := checkUploadedFileDataAt(context.Background(), "sample.png", wantData, "api-key", server.URL); err != nil {
+		t.Fatalf("checkUploadedFileDataAt() error = %v", err)
+	}
+}
+
 func TestCheckFilesChecksEachPath(t *testing.T) {
 	paths := []string{"image.png", "audio.mp3"}
 	var checked []string
@@ -299,7 +339,7 @@ func TestPrintSummaryUsesResultColors(t *testing.T) {
 }
 
 func TestServeHandlerEmbedsFrontend(t *testing.T) {
-	handler := newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+	handler := newServeHandler("api-key", func(context.Context, string, []byte, string) (checkResponse, error) {
 		t.Fatal("check function called for frontend request")
 		return checkResponse{}, nil
 	}, testWebFiles)
@@ -327,7 +367,7 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 }
 
 func TestServeHandlerDoesNotRegisterLegacyCheckRoute(t *testing.T) {
-	handler := newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+	handler := newServeHandler("api-key", func(context.Context, string, []byte, string) (checkResponse, error) {
 		t.Fatal("check function called for legacy /check route")
 		return checkResponse{}, nil
 	}, testWebFiles)
@@ -457,7 +497,7 @@ func TestServeAPIRequiresExactlyOneFile(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/check", &body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	response := httptest.NewRecorder()
-	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+	newServeHandler("api-key", func(context.Context, string, []byte, string) (checkResponse, error) {
 		t.Fatal("check function called for a request containing multiple files")
 		return checkResponse{}, nil
 	}, testWebFiles).ServeHTTP(response, request)
@@ -477,7 +517,8 @@ func TestServeAPIRequiresExactlyOneFile(t *testing.T) {
 }
 
 func TestServeAPIChecksOneUploadedFile(t *testing.T) {
-	var checkedPath string
+	var checkedFilename string
+	var checkedData []byte
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 	part, err := form.CreateFormFile("file", "sample.png")
@@ -494,8 +535,9 @@ func TestServeAPIChecksOneUploadedFile(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/check", &body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	response := httptest.NewRecorder()
-	newServeHandler("api-key", func(_ context.Context, path, apiKey string) (checkResponse, error) {
-		checkedPath = path
+	newServeHandler("api-key", func(_ context.Context, filename string, data []byte, apiKey string) (checkResponse, error) {
+		checkedFilename = filename
+		checkedData = append([]byte(nil), data...)
 		if apiKey != "api-key" {
 			t.Errorf("API key = %q, want api-key", apiKey)
 		}
@@ -512,8 +554,8 @@ func TestServeAPIChecksOneUploadedFile(t *testing.T) {
 	if result.File != "sample.png" || !result.Detected || len(result.Response.Results) != 1 {
 		t.Errorf("API result = %+v, want detected result for sample.png", result)
 	}
-	if _, err := os.Stat(checkedPath); !os.IsNotExist(err) {
-		t.Errorf("temporary upload still exists after request: stat error = %v", err)
+	if checkedFilename != "sample.png" || !bytes.Equal(checkedData, []byte("image-data")) {
+		t.Errorf("checked upload = (%q, %q), want sample.png and in-memory file contents", checkedFilename, checkedData)
 	}
 	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json", got)

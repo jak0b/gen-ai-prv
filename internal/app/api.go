@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -48,7 +49,29 @@ func checkFileAt(ctx context.Context, path, apiKey, endpoint string) (checkRespo
 	}
 	defer file.Close()
 
-	body, multipartContentType := newMultipartFileBody(file, path, size, contentType)
+	return checkFileContentAt(ctx, file, path, size, contentType, apiKey, endpoint)
+}
+
+func checkUploadedFileData(ctx context.Context, filename string, data []byte, apiKey string) (checkResponse, error) {
+	return checkUploadedFileDataAt(ctx, filename, data, apiKey, apiEndpoint)
+}
+
+func checkUploadedFileDataAt(ctx context.Context, filename string, data []byte, apiKey, endpoint string) (checkResponse, error) {
+	if len(data) == 0 {
+		return checkResponse{}, fmt.Errorf("input file is empty")
+	}
+	if len(data) > maxFileSize {
+		return checkResponse{}, fmt.Errorf("file is larger than the 50 MiB upload limit")
+	}
+	contentType, err := contentTypeFor(filename)
+	if err != nil {
+		return checkResponse{}, err
+	}
+	return checkFileContentAt(ctx, bytes.NewReader(data), filename, int64(len(data)), contentType, apiKey, endpoint)
+}
+
+func checkFileContentAt(ctx context.Context, file io.Reader, filename string, size int64, contentType, apiKey, endpoint string) (checkResponse, error) {
+	body, multipartContentType := newMultipartFileBody(file, filename, size, contentType)
 	req, err := newAPIRequest(ctx, endpoint, apiKey, body, multipartContentType)
 	if err != nil {
 		_ = body.Close()

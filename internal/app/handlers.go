@@ -3,20 +3,17 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/fs"
 	"log"
-	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sync"
 )
 
 const (
-	multipartMemory  = 1 << 20
-	maxSingleRequest = maxFileSize + 1 + multipartMemory
+	multipartOverheadLimit = 1 << 20
+	maxSingleRequest       = maxFileSize + 1 + multipartOverheadLimit
 )
 
 type serveResult struct {
@@ -56,12 +53,12 @@ func appendServeRequestAPILog(ctx context.Context, call string) bool {
 
 type serveHandler struct {
 	apiKey      string
-	check       fileCheckFunc
+	check       uploadedFileCheckFunc
 	staticFiles http.Handler
 	mux         *http.ServeMux
 }
 
-func newServeHandler(apiKey string, check fileCheckFunc, webFiles fs.FS) http.Handler {
+func newServeHandler(apiKey string, check uploadedFileCheckFunc, webFiles fs.FS) http.Handler {
 	webDir, err := fs.Sub(webFiles, "web")
 	if err != nil {
 		panic(err)
@@ -135,35 +132,73 @@ func (w *serveResponseWriter) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
 }
 
-func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (serveResult, string, int) {
+func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey string, check uploadedFileCheckFunc) (serveResult, string, int) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSingleRequest)
-	if err := r.ParseMultipartForm(multipartMemory); err != nil {
-		if r.MultipartForm != nil {
-			defer r.MultipartForm.RemoveAll()
-		}
+	filename, data, err := readUploadedFile(r)
+	if err != nil {
 		return serveResult{}, "Could not read the uploaded file. Please try again with a smaller file.", http.StatusBadRequest
 	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
-
-	files := r.MultipartForm.File["file"]
-	if len(r.MultipartForm.File) != 1 || len(files) != 1 {
+	if filename == "" {
 		return serveResult{}, "Choose exactly one file to check.", http.StatusBadRequest
 	}
-	return checkUploadedFile(r, files[0], apiKey, check), "", http.StatusOK
+	return checkUploadedFile(r, filename, data, apiKey, check), "", http.StatusOK
 }
 
-func checkUploadedFile(r *http.Request, uploaded *multipart.FileHeader, apiKey string, check fileCheckFunc) serveResult {
-	result := serveResult{File: filepath.Base(uploaded.Filename)}
-	path, err := saveUpload(uploaded)
+func readUploadedFile(r *http.Request) (string, []byte, error) {
+	reader, err := r.MultipartReader()
 	if err != nil {
-		result.Error = err.Error()
-		return result
+		return "", nil, err
 	}
-	defer os.Remove(path)
 
-	response, err := check(r.Context(), path, apiKey)
+	var filename string
+	var data []byte
+	fileCount := 0
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", nil, err
+		}
+
+		partName, partFilename := part.FormName(), part.FileName()
+		if partFilename == "" {
+			_, err = io.Copy(io.Discard, part)
+			_ = part.Close()
+			if err != nil {
+				return "", nil, err
+			}
+			continue
+		}
+
+		fileCount++
+		if partName != "file" || fileCount != 1 {
+			_, err = io.Copy(io.Discard, part)
+			_ = part.Close()
+			if err != nil {
+				return "", nil, err
+			}
+			continue
+		}
+
+		data, err = io.ReadAll(io.LimitReader(part, maxFileSize+1))
+		_ = part.Close()
+		if err != nil {
+			return "", nil, err
+		}
+		filename = partFilename
+	}
+
+	if fileCount != 1 || filename == "" {
+		return "", nil, nil
+	}
+	return filename, data, nil
+}
+
+func checkUploadedFile(r *http.Request, filename string, data []byte, apiKey string, check uploadedFileCheckFunc) serveResult {
+	result := serveResult{File: filepath.Base(filename)}
+	response, err := check(r.Context(), filename, data, apiKey)
 	if err != nil {
 		result.Error = err.Error()
 		return result
@@ -181,36 +216,4 @@ func checkUploadedFile(r *http.Request, uploaded *multipart.FileHeader, apiKey s
 func setServeHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
-}
-
-func saveUpload(upload *multipart.FileHeader) (string, error) {
-	ext := filepath.Ext(filepath.Base(upload.Filename))
-	file, err := os.CreateTemp("", "gen-ai-prv-*"+ext)
-	if err != nil {
-		return "", fmt.Errorf("prepare upload: %w", err)
-	}
-	path := file.Name()
-	src, err := upload.Open()
-	if err != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
-		return "", fmt.Errorf("read upload: %w", err)
-	}
-	defer src.Close()
-
-	size, copyErr := io.Copy(file, io.LimitReader(src, maxFileSize+1))
-	closeErr := file.Close()
-	if copyErr != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("save upload: %w", copyErr)
-	}
-	if closeErr != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("save upload: %w", closeErr)
-	}
-	if size > maxFileSize {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("file is larger than the 50 MiB upload limit")
-	}
-	return path, nil
 }
