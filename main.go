@@ -16,7 +16,7 @@ import (
 
 const (
 	keyringService = "com.jak0b.gen-ai-prv"
-	keyringAccount = "OPENAI_API_KEY"
+	apiKeyName     = "OPENAI_API_KEY"
 )
 
 type apiKeyStore interface {
@@ -50,7 +50,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	envAPIKey, envSet := os.LookupEnv("OPENAI_API_KEY")
+	envAPIKey, envSet := os.LookupEnv(apiKeyName)
 	apiKey, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -83,7 +83,7 @@ func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func(
 		}
 	}
 
-	apiKey, err := store.Get(keyringService, keyringAccount)
+	apiKey, err := store.Get(keyringService, apiKeyName)
 	if err == nil && strings.TrimSpace(apiKey) != "" {
 		return strings.TrimSpace(apiKey), nil
 	}
@@ -99,7 +99,7 @@ func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func(
 	if apiKey == "" {
 		return "", fmt.Errorf("API key cannot be empty")
 	}
-	if err := store.Set(keyringService, keyringAccount, apiKey); err != nil {
+	if err := store.Set(keyringService, apiKeyName, apiKey); err != nil {
 		return "", fmt.Errorf("save API key to OS keyring: %w", err)
 	}
 	return apiKey, nil
@@ -107,7 +107,7 @@ func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func(
 
 func promptForAPIKey() (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("OPENAI_API_KEY is not set, no API key is saved in the OS keyring, and stdin is not a terminal")
+		return "", fmt.Errorf("%s is not set, no API key is saved in the OS keyring, and stdin is not a terminal", apiKeyName)
 	}
 
 	fmt.Fprint(os.Stderr, "OpenAI API key: ")
