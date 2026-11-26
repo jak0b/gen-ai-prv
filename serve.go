@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -45,6 +47,34 @@ type servePage struct {
 }
 
 var resultTemplate = template.Must(template.ParseFS(webFiles, "web/result.html"))
+
+type serveRequestLogContextKey struct{}
+
+type serveRequestLog struct {
+	mu       sync.Mutex
+	apiCalls []string
+}
+
+func (l *serveRequestLog) appendAPICall(call string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.apiCalls = append(l.apiCalls, call)
+}
+
+func (l *serveRequestLog) apiCallSnapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.apiCalls...)
+}
+
+func appendServeRequestAPILog(ctx context.Context, call string) bool {
+	requestLog, ok := ctx.Value(serveRequestLogContextKey{}).(*serveRequestLog)
+	if !ok {
+		return false
+	}
+	requestLog.appendAPICall(call)
+	return true
+}
 
 func newServeCommand() *cobra.Command {
 	settings := viper.New()
@@ -232,9 +262,41 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 		_ = json.NewEncoder(w).Encode(result)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Incoming request: %s %s", r.Method, r.URL.Path)
-		mux.ServeHTTP(w, r)
+		requestLog := &serveRequestLog{}
+		r = r.WithContext(context.WithValue(r.Context(), serveRequestLogContextKey{}, requestLog))
+		response := &serveResponseWriter{ResponseWriter: w}
+		mux.ServeHTTP(response, r)
+		if response.status == 0 {
+			response.status = http.StatusOK
+		}
+		apiCallSnapshot := requestLog.apiCallSnapshot()
+		apiCalls, _ := json.Marshal(apiCallSnapshot)
+		if len(apiCallSnapshot) > 0 {
+			log.Printf("Incoming request: %s %s %d openai_calls=%s", r.Method, r.URL.Path, response.status, apiCalls)
+			return
+		}
+		log.Printf("Incoming request: %s %s %d", r.Method, r.URL.Path, response.status)
 	})
+}
+
+type serveResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *serveResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *serveResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
 }
 
 func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (serveResult, string, int) {

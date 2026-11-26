@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -75,14 +76,17 @@ func checkFileAt(ctx context.Context, path, apiKey, endpoint string) (checkRespo
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	client := &http.Client{Timeout: 2 * time.Minute}
+	apiTarget := req.URL.Host + req.URL.EscapedPath()
 	resp, err := client.Do(req)
 	if err != nil {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s failed", req.Method, apiTarget))
 		return checkResponse{}, fmt.Errorf("send API request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s", req.Method, apiTarget, resp.Status))
 		var apiErr apiErrorResponse
 		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
 			if apiErr.Error.Code != "" {
@@ -95,7 +99,19 @@ func checkFileAt(ctx context.Context, path, apiKey, endpoint string) (checkRespo
 
 	var result checkResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=decode_error", req.Method, apiTarget, resp.Status))
 		return checkResponse{}, fmt.Errorf("decode API response: %w", err)
 	}
+	if resultJSON, err := json.Marshal(result); err == nil {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=%s", req.Method, apiTarget, resp.Status, resultJSON))
+	} else {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=unavailable", req.Method, apiTarget, resp.Status))
+	}
 	return result, nil
+}
+
+func logOpenAIAPIRequest(ctx context.Context, details string) {
+	if !appendServeRequestAPILog(ctx, details) {
+		log.Printf("OpenAI API request: %s", details)
+	}
 }
