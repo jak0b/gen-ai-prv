@@ -33,8 +33,9 @@ function fileType(file) {
 }
 
 input.addEventListener("change", () => {
-  const available = Math.max(0, maxResources - remoteResources.length);
-  localFiles = Array.from(input.files).slice(0, available);
+  const available = Math.max(0, maxResources - resourceEntries().length);
+  const addedFiles = Array.from(input.files).slice(0, available);
+  localFiles = [...localFiles, ...addedFiles];
   if (input.files.length > available) {
     status.textContent = `Only ${maxResources} resources can be checked at once.`;
   }
