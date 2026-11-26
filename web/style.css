@@ -216,14 +216,28 @@ form {
 }
 
 .file-list li {
-  display: flex;
   min-width: 0;
   padding: 9px 0;
   border-top: 1px solid var(--line);
+}
+
+.file-choice {
+  display: flex;
+  min-width: 0;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   font-size: 12px;
+  cursor: pointer;
+}
+
+.file-choice input {
+  width: 15px;
+  height: 15px;
+  margin: 0 2px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  align-self: center;
 }
 
 .file-name {
@@ -259,6 +273,13 @@ button[type="submit"] {
 button[type="submit"]:hover {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
+}
+
+button[type="submit"]:disabled {
+  border-color: var(--line-strong);
+  background: var(--line-strong);
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .note,
@@ -373,8 +394,16 @@ button[type="submit"]:hover {
 
   .file-list li {
     align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
+  }
+
+  .file-choice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+  }
+
+  .file-choice input {
+    margin-top: 3px;
   }
 
   .file-meta {
