@@ -42,9 +42,11 @@ an array of `{ "file": ..., "response": ... }` objects for multiple files.
 ./gen-ai-prv serve
 ```
 
-Open <http://127.0.0.1:8080>. Select or drag in files, choose which to check,
-and view results as each file is checked individually. The HTML and assets are
-embedded in the executable.
+Open <http://127.0.0.1:8080>. Add an HTTP/HTTPS URL above the drop zone or select
+and drag in files, choose which resources to check, and view results as each
+resource is checked individually. URL downloads are limited to supported file
+formats and 50 MiB, and are held in memory by the browser until you leave or
+reload the page. The HTML and assets are embedded in the executable.
 
 The default listener is `127.0.0.1:8080`. Configure the host/port and optional
 TLS certificate/key with flags:
@@ -70,8 +72,10 @@ and PDF. Inputs must be non-empty regular files up to 50 MiB; audio must be
 
 File contents are uploaded to OpenAI for checking. The web server holds each
 upload in memory (up to 50 MiB) while processing it and does not stage uploads
-in temporary files. Review the API's documentation and data controls before
-sending sensitive content.
+in temporary files. For URL resources, the web server downloads the resource
+into memory and forwards it to the browser; URL fetching is limited to public
+hosts over standard HTTP/HTTPS ports. Review the API's documentation and data
+controls before sending sensitive content.
 
 ## Container
 
