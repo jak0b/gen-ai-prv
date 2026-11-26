@@ -133,11 +133,13 @@ func runServeCommand(config serveConfig, webFiles fs.FS) error {
 }
 
 func resolveServeAPIKey(envValue string, envSet, inContainer bool, store apiKeyStore, fallback func() (string, error)) (string, apiKeySource, error) {
-	if inContainer {
-		if apiKey := strings.TrimSpace(envValue); envSet && apiKey != "" {
-			return apiKey, apiKeySourceEnvironment, nil
-		}
+	if !inContainer {
+		return resolveAPIKey(envValue, envSet, store, fallback)
+	}
+
+	apiKey := strings.TrimSpace(envValue)
+	if !envSet || apiKey == "" {
 		return "", "", fmt.Errorf("%s must be set in the environment when running in a container", apiKeyName)
 	}
-	return resolveAPIKey(envValue, envSet, store, fallback)
+	return apiKey, apiKeySourceEnvironment, nil
 }
