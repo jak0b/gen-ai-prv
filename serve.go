@@ -231,7 +231,10 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(result)
 	})
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Incoming request: %s %s", r.Method, r.URL.Path)
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (serveResult, string, int) {
