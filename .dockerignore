@@ -1,0 +1,5 @@
+.git
+.gitignore
+gen-ai-prv
+*.test
+coverage.out

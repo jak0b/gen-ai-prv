@@ -72,6 +72,34 @@ continues to print the API response directly.
 in the OS keyring; if no key is saved, it prompts for one without echoing it
 and stores it in the keyring for future runs.
 
+## Container
+
+Build the image with Podman (or Docker):
+
+```sh
+podman build -t gen-ai-prv -f Containerfile .
+# Docker:
+docker build -t gen-ai-prv -f Containerfile .
+```
+
+The image uses `scratch` and runs as a non-root user. Pass the API key through
+the environment; the container does not have an OS keyring. To check a local
+file, mount its directory read-only:
+
+```sh
+podman run --rm -e OPENAI_API_KEY -v "$PWD:/data:ro" gen-ai-prv /data/image.png
+```
+
+To start the web interface, bind it to all container interfaces and publish its
+port:
+
+```sh
+podman run --rm -e OPENAI_API_KEY -p 127.0.0.1:8080:8080 gen-ai-prv serve --host 0.0.0.0
+```
+
+Open <http://127.0.0.1:8080>. Use `docker run` in place of `podman run` with
+Docker.
+
 Print the full API response as JSON:
 
 ```sh
