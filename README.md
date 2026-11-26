@@ -11,7 +11,7 @@ not AI-generated.
 
 ## Requirements and quick start
 
-Requires Go 1.22+ and an OpenAI API key with access to the Content Provenance
+Requires Go 1.27+ and an OpenAI API key with access to the Content Provenance
 API.
 
 ```sh

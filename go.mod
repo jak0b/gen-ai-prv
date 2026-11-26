@@ -1,6 +1,6 @@
 module github.com/jak0b/gen-ai-prv
 
-go 1.22
+go 1.27
 
 require (
 	github.com/spf13/cobra v1.9.1

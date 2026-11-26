@@ -1,6 +1,8 @@
-FROM golang:1.22-alpine AS build
+FROM golang:1.27.4 AS build
 
-RUN apk add --no-cache ca-certificates
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 
