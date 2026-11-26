@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
 	"golang.org/x/term"
 )
@@ -43,74 +42,77 @@ func (osAPIKeyStore) Set(service, user, password string) error {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		if err := serveCommand(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	jsonOutput := flag.Bool("json", false, "print the complete API response as JSON")
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <image|audio|pdf>...\n       %s serve [flags]\n\n", filepath.Base(os.Args[0]), filepath.Base(os.Args[0]))
-		fmt.Fprintln(flag.CommandLine.Output(), "Check files for supported OpenAI provenance signals.")
-		fmt.Fprintln(flag.CommandLine.Output(), "\nFlags:")
-		flag.PrintDefaults()
-		fmt.Fprintln(flag.CommandLine.Output(), "\nSet OPENAI_API_KEY to your OpenAI API key. Use 'serve' to start the web interface.")
-	}
-	flag.Parse()
-
-	if flag.NArg() < 1 {
-		flag.Usage()
-		os.Exit(2)
-	}
-
-	envAPIKey, envSet := os.LookupEnv(apiKeyName)
-	apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
-	if err != nil {
+	if err := newRootCommand().Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	switch source {
-	case apiKeySourceEnvironment:
-		fmt.Fprintf(os.Stderr, "Using API key from environment variable %s.\n", apiKeyName)
-	case apiKeySourceKeyring:
-		fmt.Fprintln(os.Stderr, "Using API key from OS keyring.")
-	case apiKeySourcePrompt:
-		fmt.Fprintln(os.Stderr, "Using interactively entered API key (saved to OS keyring).")
-	}
+}
 
-	results, err := checkFiles(context.Background(), flag.Args(), apiKey, checkFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+func newRootCommand() *cobra.Command {
+	var jsonOutput bool
 
-	if *jsonOutput {
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		var output any = results[0].Response
-		if len(results) > 1 {
-			output = results
-		}
-		if err := encoder.Encode(output); err != nil {
-			fmt.Fprintf(os.Stderr, "error: writing JSON: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
+	root := &cobra.Command{
+		Use:           "gen-ai-prv [flags] <image|audio|pdf>...",
+		Short:         "Check files for supported OpenAI provenance signals",
+		Long:          "Check files for supported OpenAI provenance signals.\n\nSet OPENAI_API_KEY to your OpenAI API key. Use 'serve' to start the web interface.",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Args: func(cmd *cobra.Command, paths []string) error {
+			if len(paths) == 0 {
+				_ = cmd.Usage()
+				return fmt.Errorf("at least one file argument is required")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, paths []string) error {
+			envAPIKey, envSet := os.LookupEnv(apiKeyName)
+			apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
+			if err != nil {
+				return err
+			}
+			switch source {
+			case apiKeySourceEnvironment:
+				fmt.Fprintf(cmd.ErrOrStderr(), "Using API key from environment variable %s.\n", apiKeyName)
+			case apiKeySourceKeyring:
+				fmt.Fprintln(cmd.ErrOrStderr(), "Using API key from OS keyring.")
+			case apiKeySourcePrompt:
+				fmt.Fprintln(cmd.ErrOrStderr(), "Using interactively entered API key (saved to OS keyring).")
+			}
 
-	color := term.IsTerminal(int(os.Stdout.Fd()))
-	for i, result := range results {
-		if len(results) > 1 {
-			fmt.Fprintf(os.Stdout, "%s:\n", result.File)
-		}
-		printSummary(os.Stdout, result.Response, color)
-		if i < len(results)-1 {
-			fmt.Fprintln(os.Stdout)
-		}
+			results, err := checkFiles(context.Background(), paths, apiKey, checkFile)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				encoder := json.NewEncoder(cmd.OutOrStdout())
+				encoder.SetIndent("", "  ")
+				var output any = results[0].Response
+				if len(results) > 1 {
+					output = results
+				}
+				if err := encoder.Encode(output); err != nil {
+					return fmt.Errorf("writing JSON: %w", err)
+				}
+				return nil
+			}
+
+			color := term.IsTerminal(int(os.Stdout.Fd()))
+			for i, result := range results {
+				if len(results) > 1 {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s:\n", result.File)
+				}
+				printSummary(cmd.OutOrStdout(), result.Response, color)
+				if i < len(results)-1 {
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
+			}
+			return nil
+		},
 	}
+	root.Flags().BoolVar(&jsonOutput, "json", false, "print the complete API response as JSON")
+	root.AddCommand(newServeCommand())
+	return root
 }
 
 type fileCheckResult struct {

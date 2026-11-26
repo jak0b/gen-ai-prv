@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"html/template"
 	"io"
@@ -12,7 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -40,16 +40,21 @@ type servePage struct {
 
 var resultTemplate = template.Must(template.ParseFS(webFiles, "web/result.html"))
 
-func serveCommand(args []string) error {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := flags.String("addr", defaultServeAddr, "address to listen on")
-	if err := flags.Parse(args); err != nil {
-		return err
+func newServeCommand() *cobra.Command {
+	addr := defaultServeAddr
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the web interface",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runServeCommand(addr)
+		},
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
-	}
+	command.Flags().StringVar(&addr, "addr", defaultServeAddr, "address to listen on")
+	return command
+}
 
+func runServeCommand(addr string) error {
 	envAPIKey, envSet := os.LookupEnv(apiKeyName)
 	apiKey, _, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, func() (string, error) {
 		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
@@ -59,10 +64,10 @@ func serveCommand(args []string) error {
 	}
 
 	server := &http.Server{
-		Addr:    *addr,
+		Addr:    addr,
 		Handler: newServeHandler(apiKey, checkFile),
 	}
-	fmt.Fprintf(os.Stderr, "Serving at http://%s\n", *addr)
+	fmt.Fprintf(os.Stderr, "Serving at http://%s\n", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("start server: %w", err)
 	}

@@ -40,6 +40,38 @@ func (s *fakeAPIKeyStore) Set(service, account, key string) error {
 	return s.setErr
 }
 
+func TestRootCommandHelpIncludesFlagsAndServeCommand(t *testing.T) {
+	command := newRootCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+	command.SetArgs([]string{"--help"})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{"--json", "serve", "Check files for supported OpenAI provenance signals"} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("help output = %q, want it to contain %q", output.String(), want)
+		}
+	}
+}
+
+func TestRootCommandRequiresFileArguments(t *testing.T) {
+	command := newRootCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "at least one file argument is required") {
+		t.Fatalf("Execute() error = %v, want missing-file argument error", err)
+	}
+	if !strings.Contains(output.String(), "Usage:") {
+		t.Errorf("usage output = %q, want usage to be shown", output.String())
+	}
+}
+
 func TestResolveAPIKeyPrefersEnvironment(t *testing.T) {
 	store := &fakeAPIKeyStore{key: "keyring-key"}
 	promptCalled := false
