@@ -4,7 +4,86 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
+
+type fakeAPIKeyStore struct {
+	key       string
+	getErr    error
+	setErr    error
+	setCalled bool
+	service   string
+	account   string
+}
+
+func (s *fakeAPIKeyStore) Get(service, account string) (string, error) {
+	s.service = service
+	s.account = account
+	return s.key, s.getErr
+}
+
+func (s *fakeAPIKeyStore) Set(service, account, key string) error {
+	s.setCalled = true
+	s.service = service
+	s.account = account
+	s.key = key
+	return s.setErr
+}
+
+func TestResolveAPIKeyPrefersEnvironment(t *testing.T) {
+	store := &fakeAPIKeyStore{key: "keyring-key"}
+	promptCalled := false
+
+	got, err := resolveAPIKey(" env-key ", true, store, func() (string, error) {
+		promptCalled = true
+		return "", nil
+	})
+	if err != nil {
+		t.Fatalf("resolveAPIKey() error = %v", err)
+	}
+	if got != "env-key" {
+		t.Errorf("resolveAPIKey() = %q, want env-key", got)
+	}
+	if promptCalled || store.setCalled {
+		t.Fatal("environment key should bypass prompting and keyring writes")
+	}
+}
+
+func TestResolveAPIKeyUsesSavedKey(t *testing.T) {
+	store := &fakeAPIKeyStore{key: " saved-key "}
+	promptCalled := false
+
+	got, err := resolveAPIKey("", false, store, func() (string, error) {
+		promptCalled = true
+		return "", nil
+	})
+	if err != nil {
+		t.Fatalf("resolveAPIKey() error = %v", err)
+	}
+	if got != "saved-key" {
+		t.Errorf("resolveAPIKey() = %q, want saved-key", got)
+	}
+	if promptCalled {
+		t.Fatal("prompt called despite a saved key")
+	}
+}
+
+func TestResolveAPIKeyPromptsAndSaves(t *testing.T) {
+	store := &fakeAPIKeyStore{getErr: keyring.ErrNotFound}
+	got, err := resolveAPIKey("", false, store, func() (string, error) {
+		return " prompted-key ", nil
+	})
+	if err != nil {
+		t.Fatalf("resolveAPIKey() error = %v", err)
+	}
+	if got != "prompted-key" || store.key != "prompted-key" || !store.setCalled {
+		t.Fatalf("resolveAPIKey() = %q, saved key = %q, setCalled = %v", got, store.key, store.setCalled)
+	}
+	if store.service != "com.jak0b.gen-ai-prv" || store.account != "OPENAI_API_KEY" {
+		t.Errorf("keyring coordinates = (%q, %q), want (com.jak0b.gen-ai-prv, OPENAI_API_KEY)", store.service, store.account)
+	}
+}
 
 func TestContentTypeFor(t *testing.T) {
 	tests := []struct {

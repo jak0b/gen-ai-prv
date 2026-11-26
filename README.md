@@ -17,6 +17,10 @@ export OPENAI_API_KEY="your-api-key"
 ./gen-ai-prv ./image.png
 ```
 
+`OPENAI_API_KEY` takes precedence when set. Otherwise, the CLI uses a key saved
+in the OS keyring; if no key is saved, it prompts for one without echoing it
+and stores it in the keyring for future runs.
+
 Print the full API response as JSON:
 
 ```sh
