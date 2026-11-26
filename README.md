@@ -24,11 +24,12 @@ Start the built-in web interface:
 ```
 
 Then open <http://127.0.0.1:8080>. The page supports selecting or dragging
-multiple files into the file chooser, and serves its HTML and CSS from the
-executable (no extra frontend files are needed). It uses `OPENAI_API_KEY` or a
-key saved in the OS keyring. To choose another listen address, use
-`./gen-ai-prv serve -addr 127.0.0.1:9090`. The default address is localhost;
-only bind to a network interface you trust.
+multiple files into the file chooser and checks them one at a time. Each
+frontend API request contains exactly one file. The page serves its HTML and
+CSS from the executable (no extra frontend files are needed). It uses
+`OPENAI_API_KEY` or a key saved in the OS keyring. To choose another listen
+address, use `./gen-ai-prv serve -addr 127.0.0.1:9090`. The default address is
+localhost; only bind to a network interface you trust.
 
 Pass multiple paths to check several files in one run:
 

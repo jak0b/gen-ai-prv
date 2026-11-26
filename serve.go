@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ const (
 	maxServeFiles    = 10
 	multipartMemory  = 1 << 20
 	maxServeRequest  = (maxFileSize+1)*maxServeFiles + multipartMemory
+	maxSingleRequest = maxFileSize + 1 + multipartMemory
 	defaultServeAddr = "127.0.0.1:8080"
 )
 
@@ -25,15 +27,15 @@ const (
 var webFiles embed.FS
 
 type serveResult struct {
-	File     string
-	Response checkResponse
-	Error    string
-	Detected bool
+	File     string        `json:"file"`
+	Response checkResponse `json:"response,omitempty"`
+	Error    string        `json:"error,omitempty"`
+	Detected bool          `json:"detected"`
 }
 
 type servePage struct {
-	Results []serveResult
-	Error   string
+	Results []serveResult `json:"results,omitempty"`
+	Error   string        `json:"error,omitempty"`
 }
 
 var resultTemplate = template.Must(template.ParseFS(webFiles, "web/result.html"))
@@ -87,54 +89,93 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 	})
 	mux.HandleFunc("POST /check", func(w http.ResponseWriter, r *http.Request) {
 		setServeHeaders(w)
-		r.Body = http.MaxBytesReader(w, r.Body, maxServeRequest)
-		if err := r.ParseMultipartForm(multipartMemory); err != nil {
-			if r.MultipartForm != nil {
-				defer r.MultipartForm.RemoveAll()
-			}
-			writeServePage(w, servePage{Error: "Could not read the uploaded files. Please try again with smaller files."}, http.StatusBadRequest)
+		page, status := checkUploadedFiles(w, r, apiKey, check)
+		writeServePage(w, page, status)
+	})
+	mux.HandleFunc("POST /api/check", func(w http.ResponseWriter, r *http.Request) {
+		setServeHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		result, message, status := checkSingleUploadedFile(w, r, apiKey, check)
+		w.WriteHeader(status)
+		if message != "" {
+			_ = json.NewEncoder(w).Encode(struct {
+				Error string `json:"error"`
+			}{Error: message})
 			return
 		}
+		_ = json.NewEncoder(w).Encode(result)
+	})
+	return mux
+}
+
+func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (serveResult, string, int) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSingleRequest)
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
 		if r.MultipartForm != nil {
 			defer r.MultipartForm.RemoveAll()
 		}
+		return serveResult{}, "Could not read the uploaded file. Please try again with a smaller file.", http.StatusBadRequest
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 
-		files := r.MultipartForm.File["files"]
-		if len(files) == 0 {
-			writeServePage(w, servePage{Error: "Choose at least one file to check."}, http.StatusBadRequest)
-			return
-		}
-		if len(files) > maxServeFiles {
-			writeServePage(w, servePage{Error: fmt.Sprintf("Choose no more than %d files at a time.", maxServeFiles)}, http.StatusBadRequest)
-			return
-		}
+	files := r.MultipartForm.File["file"]
+	if len(r.MultipartForm.File) != 1 || len(files) != 1 {
+		return serveResult{}, "Choose exactly one file to check.", http.StatusBadRequest
+	}
+	return checkUploadedFile(r, files[0], apiKey, check), "", http.StatusOK
+}
 
-		page := servePage{Results: make([]serveResult, 0, len(files))}
-		for _, uploaded := range files {
-			result := serveResult{File: filepath.Base(uploaded.Filename)}
-			path, err := saveUpload(uploaded)
-			if err != nil {
-				result.Error = err.Error()
-			} else {
-				response, checkErr := check(r.Context(), path, apiKey)
-				if checkErr != nil {
-					result.Error = checkErr.Error()
-				} else {
-					result.Response = response
-					for _, item := range response.Results {
-						if item.Outcome == "detected" {
-							result.Detected = true
-							break
-						}
-					}
-				}
-				_ = os.Remove(path)
-			}
-			page.Results = append(page.Results, result)
+func checkUploadedFiles(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (servePage, int) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxServeRequest)
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
 		}
-		writeServePage(w, page, http.StatusOK)
-	})
-	return mux
+		return servePage{Error: "Could not read the uploaded files. Please try again with smaller files."}, http.StatusBadRequest
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		return servePage{Error: "Choose at least one file to check."}, http.StatusBadRequest
+	}
+	if len(files) > maxServeFiles {
+		return servePage{Error: fmt.Sprintf("Choose no more than %d files at a time.", maxServeFiles)}, http.StatusBadRequest
+	}
+
+	page := servePage{Results: make([]serveResult, 0, len(files))}
+	for _, uploaded := range files {
+		page.Results = append(page.Results, checkUploadedFile(r, uploaded, apiKey, check))
+	}
+	return page, http.StatusOK
+}
+
+func checkUploadedFile(r *http.Request, uploaded *multipart.FileHeader, apiKey string, check fileCheckFunc) serveResult {
+	result := serveResult{File: filepath.Base(uploaded.Filename)}
+	path, err := saveUpload(uploaded)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	defer os.Remove(path)
+
+	response, err := check(r.Context(), path, apiKey)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	result.Response = response
+	for _, item := range response.Results {
+		if item.Outcome == "detected" {
+			result.Detected = true
+			break
+		}
+	}
+	return result
 }
 
 func setServeHeaders(w http.ResponseWriter) {

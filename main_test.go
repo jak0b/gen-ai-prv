@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"mime/multipart"
 	"net/http"
@@ -315,6 +316,88 @@ func TestServeHandlerChecksUploadedFiles(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "PROVENANCE SIGNAL DETECTED") {
 		t.Errorf("response missing detected result: %q", response.Body.String())
+	}
+}
+
+func TestServeAPIRequiresExactlyOneFile(t *testing.T) {
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	for _, name := range []string{"first.png", "second.png"} {
+		part, err := form.CreateFormFile("file", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write([]byte("image-data")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/check", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+		t.Fatal("check function called for a request containing multiple files")
+		return checkResponse{}, nil
+	}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/check status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode API error response: %v", err)
+	}
+	if !strings.Contains(payload.Error, "exactly one file") {
+		t.Errorf("API error = %q, want a single-file validation message", payload.Error)
+	}
+}
+
+func TestServeAPIChecksOneUploadedFile(t *testing.T) {
+	var checkedPath string
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", "sample.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("image-data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/check", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+	newServeHandler("api-key", func(_ context.Context, path, apiKey string) (checkResponse, error) {
+		checkedPath = path
+		if apiKey != "api-key" {
+			t.Errorf("API key = %q, want api-key", apiKey)
+		}
+		return checkResponse{Results: []checkResult{{Type: "c2pa", Outcome: "detected"}}}, nil
+	}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/check status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var result serveResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode API result: %v", err)
+	}
+	if result.File != "sample.png" || !result.Detected || len(result.Response.Results) != 1 {
+		t.Errorf("API result = %+v, want detected result for sample.png", result)
+	}
+	if _, err := os.Stat(checkedPath); !os.IsNotExist(err) {
+		t.Errorf("temporary upload still exists after request: stat error = %v", err)
+	}
+	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", got)
 	}
 }
 

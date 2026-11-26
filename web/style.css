@@ -310,6 +310,20 @@ button[type="submit"]:disabled {
   margin-top: 32px;
 }
 
+#check-status:empty {
+  display: none;
+}
+
+#check-status {
+  max-width: 700px;
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+
+#results[hidden] {
+  display: none;
+}
+
 .result h2 {
   margin: 0 0 14px;
   color: var(--heading);

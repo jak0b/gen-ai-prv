@@ -27,6 +27,8 @@
         </section>
         <button type="submit">Check files</button>
       </form>
+      <p id="check-status" role="status" aria-live="polite"></p>
+      <section id="results" aria-live="polite" hidden></section>
       <p class="note">Uploads are sent to the OpenAI Content Provenance API. Maximum 50 MiB per file.</p>
       <p class="disclaimer">This is not a general-purpose AI detector. A result with no signal does not prove content was made by a person.</p>
     </main>
