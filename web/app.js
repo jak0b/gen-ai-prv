@@ -99,6 +99,19 @@ fetchButton.addEventListener("click", async () => {
 
 list.addEventListener("change", updateSelectionCount);
 
+list.addEventListener("click", (event) => {
+  const button = event.target.closest(".remove-resource");
+  if (!button) return;
+
+  const index = Number(button.dataset.resourceIndex);
+  if (index < localFiles.length) {
+    localFiles.splice(index, 1);
+  } else {
+    remoteResources.splice(index - localFiles.length, 1);
+  }
+  renderSelection();
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (isSubmitting) return;
@@ -161,6 +174,13 @@ form.addEventListener("submit", async (event) => {
 });
 
 function renderSelection() {
+  const previousEntries = resourceEntries();
+  const previouslyPresent = new Set(previousEntries.map(({ file }) => file));
+  const previouslySelected = new Set(
+    Array.from(list.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((checkbox) => previousEntries[Number(checkbox.dataset.resourceIndex)]?.file)
+      .filter(Boolean),
+  );
   const entries = resourceEntries();
   list.replaceChildren();
   if (entries.length === 0) {
@@ -171,14 +191,17 @@ function renderSelection() {
 
   for (const [index, resource] of entries.entries()) {
     const item = document.createElement("li");
+    const row = document.createElement("div");
     const choice = document.createElement("label");
     const checkbox = document.createElement("input");
     const name = document.createElement("span");
     const meta = document.createElement("span");
+    const remove = document.createElement("button");
 
+    row.className = "file-row";
     choice.className = "file-choice";
     checkbox.type = "checkbox";
-    checkbox.checked = true;
+    checkbox.checked = !previouslyPresent.has(resource.file) || previouslySelected.has(resource.file);
     checkbox.dataset.resourceIndex = index;
     checkbox.setAttribute("aria-label", `Include ${resource.file.name} in check`);
     name.className = "file-name";
@@ -186,7 +209,13 @@ function renderSelection() {
     meta.className = "file-meta";
     meta.textContent = `${fileType(resource.file)} · ${formatSize(resource.file.size)}`;
     choice.append(checkbox, name, meta);
-    item.append(choice);
+    remove.className = "remove-resource";
+    remove.type = "button";
+    remove.dataset.resourceIndex = index;
+    remove.setAttribute("aria-label", `Remove ${resource.file.name}`);
+    remove.textContent = "Remove";
+    row.append(choice, remove);
+    item.append(row);
 
     if (resource.sourceUrl) {
       const source = document.createElement("a");

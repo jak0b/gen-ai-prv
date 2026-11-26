@@ -303,11 +303,36 @@ form {
 .file-choice {
   display: flex;
   min-width: 0;
+  flex: 1;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   font-size: 12px;
   cursor: pointer;
+}
+
+.file-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.remove-resource {
+  padding: 3px 7px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.remove-resource:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .file-choice input {
