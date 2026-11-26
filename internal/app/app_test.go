@@ -326,6 +326,19 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 	}
 }
 
+func TestServeHandlerDoesNotRegisterLegacyCheckRoute(t *testing.T) {
+	handler := newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+		t.Fatal("check function called for legacy /check route")
+		return checkResponse{}, nil
+	}, testWebFiles)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/check", nil))
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /check status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestReadServeConfigFromFile(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "server.yaml")
 	configData := []byte("host: 0.0.0.0\nport: 9443\ntls-cert: server.crt\ntls-key: server.key\n")
@@ -450,50 +463,6 @@ func TestServeCommandUsesViperBoundFlags(t *testing.T) {
 	}
 }
 
-func TestServeHandlerChecksUploadedFiles(t *testing.T) {
-	var checkedPath string
-	handler := newServeHandler("api-key", func(_ context.Context, path, apiKey string) (checkResponse, error) {
-		checkedPath = path
-		if apiKey != "api-key" {
-			t.Errorf("API key = %q, want api-key", apiKey)
-		}
-		if _, err := os.Stat(path); err != nil {
-			t.Errorf("uploaded temporary file does not exist: %v", err)
-		}
-		return checkResponse{Results: []checkResult{{Type: "c2pa", Outcome: "detected"}}}, nil
-	}, testWebFiles)
-
-	var body bytes.Buffer
-	form := multipart.NewWriter(&body)
-	part, err := form.CreateFormFile("files", "sample.png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write([]byte("image-data")); err != nil {
-		t.Fatal(err)
-	}
-	if err := form.Close(); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodPost, "/check", &body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("POST /check status = %d, body = %q", response.Code, response.Body.String())
-	}
-	if checkedPath == "" {
-		t.Fatal("check function was not called")
-	}
-	if _, err := os.Stat(checkedPath); !os.IsNotExist(err) {
-		t.Errorf("temporary upload still exists after request: stat error = %v", err)
-	}
-	if !strings.Contains(response.Body.String(), "PROVENANCE SIGNAL DETECTED") {
-		t.Errorf("response missing detected result: %q", response.Body.String())
-	}
-}
-
 func TestServeAPIRequiresExactlyOneFile(t *testing.T) {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
@@ -573,52 +542,5 @@ func TestServeAPIChecksOneUploadedFile(t *testing.T) {
 	}
 	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json", got)
-	}
-}
-
-func TestServeHandlerRequiresUploadedFiles(t *testing.T) {
-	var body bytes.Buffer
-	form := multipart.NewWriter(&body)
-	if err := form.Close(); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodPost, "/check", &body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
-	response := httptest.NewRecorder()
-	newServeHandler("api-key", checkFile, testWebFiles).ServeHTTP(response, request)
-
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Choose at least one file") {
-		t.Errorf("POST /check response = %d %q, want missing-file error", response.Code, response.Body.String())
-	}
-}
-
-func TestServeHandlerDisplaysCheckError(t *testing.T) {
-	var body bytes.Buffer
-	form := multipart.NewWriter(&body)
-	part, err := form.CreateFormFile("files", "sample.png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write([]byte("image-data")); err != nil {
-		t.Fatal(err)
-	}
-	if err := form.Close(); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodPost, "/check", &body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
-	response := httptest.NewRecorder()
-	checkErr := errors.New("OpenAI API returned 429 Too Many Requests (rate_limit_exceeded): Rate limit reached")
-	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
-		return checkResponse{}, checkErr
-	}, testWebFiles).ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("POST /check status = %d, body = %q", response.Code, response.Body.String())
-	}
-	for _, want := range []string{"Could not check this file.", "429 Too Many Requests", "Rate limit reached"} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("response = %q, want it to contain %q", response.Body.String(), want)
-		}
 	}
 }

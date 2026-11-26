@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"io/fs"
 	"log"
@@ -16,9 +15,7 @@ import (
 )
 
 const (
-	maxServeFiles    = 10
 	multipartMemory  = 1 << 20
-	maxServeRequest  = (maxFileSize+1)*maxServeFiles + multipartMemory
 	maxSingleRequest = maxFileSize + 1 + multipartMemory
 )
 
@@ -27,11 +24,6 @@ type serveResult struct {
 	Response checkResponse `json:"response,omitempty"`
 	Error    string        `json:"error,omitempty"`
 	Detected bool          `json:"detected"`
-}
-
-type servePage struct {
-	Results []serveResult `json:"results,omitempty"`
-	Error   string        `json:"error,omitempty"`
 }
 
 type serveRequestLogContextKey struct{}
@@ -67,7 +59,6 @@ func newServeHandler(apiKey string, check fileCheckFunc, webFiles fs.FS) http.Ha
 	if err != nil {
 		panic(err)
 	}
-	resultTemplate := template.Must(template.ParseFS(webFiles, "web/result.html"))
 	staticFiles := http.FileServer(http.FS(webDir))
 
 	mux := http.NewServeMux()
@@ -75,11 +66,6 @@ func newServeHandler(apiKey string, check fileCheckFunc, webFiles fs.FS) http.Ha
 		setServeHeaders(w)
 		staticFiles.ServeHTTP(w, r)
 	}))
-	mux.HandleFunc("POST /check", func(w http.ResponseWriter, r *http.Request) {
-		setServeHeaders(w)
-		page, status := checkUploadedFiles(w, r, apiKey, check)
-		writeServePage(w, page, status, resultTemplate)
-	})
 	mux.HandleFunc("POST /api/check", func(w http.ResponseWriter, r *http.Request) {
 		setServeHeaders(w)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -151,33 +137,6 @@ func checkSingleUploadedFile(w http.ResponseWriter, r *http.Request, apiKey stri
 	return checkUploadedFile(r, files[0], apiKey, check), "", http.StatusOK
 }
 
-func checkUploadedFiles(w http.ResponseWriter, r *http.Request, apiKey string, check fileCheckFunc) (servePage, int) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxServeRequest)
-	if err := r.ParseMultipartForm(multipartMemory); err != nil {
-		if r.MultipartForm != nil {
-			defer r.MultipartForm.RemoveAll()
-		}
-		return servePage{Error: "Could not read the uploaded files. Please try again with smaller files."}, http.StatusBadRequest
-	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
-
-	files := r.MultipartForm.File["files"]
-	if len(files) == 0 {
-		return servePage{Error: "Choose at least one file to check."}, http.StatusBadRequest
-	}
-	if len(files) > maxServeFiles {
-		return servePage{Error: fmt.Sprintf("Choose no more than %d files at a time.", maxServeFiles)}, http.StatusBadRequest
-	}
-
-	page := servePage{Results: make([]serveResult, 0, len(files))}
-	for _, uploaded := range files {
-		page.Results = append(page.Results, checkUploadedFile(r, uploaded, apiKey, check))
-	}
-	return page, http.StatusOK
-}
-
 func checkUploadedFile(r *http.Request, uploaded *multipart.FileHeader, apiKey string, check fileCheckFunc) serveResult {
 	result := serveResult{File: filepath.Base(uploaded.Filename)}
 	path, err := saveUpload(uploaded)
@@ -205,16 +164,6 @@ func checkUploadedFile(r *http.Request, uploaded *multipart.FileHeader, apiKey s
 func setServeHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
-}
-
-func writeServePage(w http.ResponseWriter, page servePage, status int, resultTemplate *template.Template) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := resultTemplate.Execute(w, page); err != nil {
-		// The response may already have started; logging is unnecessary for this
-		// local interface, but avoid turning template errors into a panic.
-		return
-	}
 }
 
 func saveUpload(upload *multipart.FileHeader) (string, error) {
