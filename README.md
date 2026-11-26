@@ -30,6 +30,8 @@ CSS from the executable (no extra frontend files are needed). It uses
 `OPENAI_API_KEY` or a key saved in the OS keyring. To choose another listen
 address, use `./gen-ai-prv serve -addr 127.0.0.1:9090`. The default address is
 localhost; only bind to a network interface you trust.
+At startup, the server reports whether it selected the key from
+`OPENAI_API_KEY` or the OS keyring.
 
 Pass multiple paths to check several files in one run:
 
