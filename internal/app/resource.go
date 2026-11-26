@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,7 +26,18 @@ const maxResourceURLLength = 4096
 
 var globallyRoutableIPv6 = netip.MustParsePrefix("2000::/3")
 
-func fetchRemoteResource(ctx context.Context, rawURL string) (fetchedResource, error) {
+func fetchRemoteResource(ctx context.Context, rawURL string) (result fetchedResource, fetchErr error) {
+	started := time.Now()
+	host := ""
+	defer func() {
+		if fetchErr != nil {
+			log.Printf("Resource fetch: host=%q result=error duration=%s", host, time.Since(started).Round(time.Millisecond))
+			return
+		}
+		log.Printf("Resource fetch: host=%q filename=%q content_type=%q bytes=%d duration=%s",
+			host, result.filename, result.contentType, len(result.data), time.Since(started).Round(time.Millisecond))
+	}()
+
 	if len(rawURL) > maxResourceURLLength {
 		return fetchedResource{}, fmt.Errorf("URL is too long")
 	}
@@ -33,6 +45,7 @@ func fetchRemoteResource(ctx context.Context, rawURL string) (fetchedResource, e
 	if err != nil {
 		return fetchedResource{}, err
 	}
+	host = parsed.Hostname()
 
 	transport := &http.Transport{
 		Proxy: nil,
