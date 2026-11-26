@@ -26,6 +26,13 @@ const maxResourceURLLength = 4096
 
 var globallyRoutableIPv6 = netip.MustParsePrefix("2000::/3")
 
+// fetchRemoteResource downloads a resource with safeguards against unsafe URLs
+// and oversized or unexpected content. It accepts only HTTP(S) URLs on standard
+// ports, rejects credentials and non-public IPs, and rechecks resolved addresses
+// at dial time to prevent access to private networks. Redirects are limited and
+// revalidated. Requests have a 30-second timeout, and response bodies are capped
+// at 50 MiB. The response status, content type, filename, and file signature are
+// validated before the data is returned.
 func fetchRemoteResource(ctx context.Context, rawURL string) (result fetchedResource, fetchErr error) {
 	started := time.Now()
 	host := ""
