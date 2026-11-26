@@ -118,6 +118,71 @@ form {
   max-width: 700px;
 }
 
+.url-entry {
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.url-entry > label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--heading);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.url-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.url-controls input {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  flex: 1;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.url-controls button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.url-controls button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--heading);
+}
+
+.url-controls button:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.url-help {
+  display: block;
+  margin-top: 8px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 .drop-zone {
   position: relative;
   display: flex;
@@ -219,6 +284,20 @@ form {
   min-width: 0;
   padding: 9px 0;
   border-top: 1px solid var(--line);
+}
+
+.file-source {
+  display: block;
+  padding-left: 31px;
+  margin-top: 3px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.file-source:hover {
+  color: var(--accent);
 }
 
 .file-choice {
@@ -408,6 +487,15 @@ button[type="submit"]:disabled {
 
   .file-list li {
     align-items: flex-start;
+  }
+
+  .url-controls {
+    flex-wrap: wrap;
+  }
+
+  .url-controls input,
+  .url-controls button {
+    width: 100%;
   }
 
   .file-choice {

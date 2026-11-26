@@ -1,13 +1,24 @@
 const input = document.querySelector("#file-input");
 const form = input.form;
+const urlInput = document.querySelector("#resource-url");
+const fetchButton = document.querySelector("#fetch-url");
 const summary = document.querySelector("#file-summary");
 const count = document.querySelector("#file-count");
 const list = document.querySelector("#file-list");
 const submit = form.querySelector('button[type="submit"]');
 const status = document.querySelector("#check-status");
 const results = document.querySelector("#results");
-let selectedFiles = [];
+let localFiles = [];
+let remoteResources = [];
 let isSubmitting = false;
+const maxResources = 10;
+
+function resourceEntries() {
+  return [
+    ...localFiles.map((file) => ({ file, sourceUrl: "" })),
+    ...remoteResources,
+  ];
+}
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -22,66 +33,92 @@ function fileType(file) {
 }
 
 input.addEventListener("change", () => {
-  selectedFiles = Array.from(input.files);
-  list.replaceChildren();
+  const available = Math.max(0, maxResources - remoteResources.length);
+  localFiles = Array.from(input.files).slice(0, available);
+  if (input.files.length > available) {
+    status.textContent = `Only ${maxResources} resources can be checked at once.`;
+  }
+  renderSelection();
+});
 
-  if (selectedFiles.length === 0) {
-    summary.hidden = true;
-    submit.disabled = true;
+fetchButton.addEventListener("click", async () => {
+  if (isSubmitting) return;
+  const resourceUrl = urlInput.value.trim();
+  if (!resourceUrl) {
+    urlInput.focus();
+    status.textContent = "Enter a URL to fetch.";
+    return;
+  }
+  if (resourceEntries().length >= maxResources) {
+    status.textContent = `You can check up to ${maxResources} resources at once.`;
+    return;
+  }
+  if (remoteResources.some((resource) => resource.sourceUrl === resourceUrl)) {
+    status.textContent = "That URL has already been added.";
     return;
   }
 
-  for (const [index, file] of selectedFiles.entries()) {
-    const item = document.createElement("li");
-    const choice = document.createElement("label");
-    const checkbox = document.createElement("input");
-    const name = document.createElement("span");
-    const meta = document.createElement("span");
-
-    choice.className = "file-choice";
-    checkbox.type = "checkbox";
-    checkbox.checked = true;
-    checkbox.dataset.fileIndex = index;
-    checkbox.setAttribute("aria-label", `Include ${file.name} in check`);
-    name.className = "file-name";
-    name.textContent = file.name;
-    meta.className = "file-meta";
-    meta.textContent = `${fileType(file)} · ${formatSize(file.size)}`;
-    choice.append(checkbox, name, meta);
-    item.append(choice);
-    list.append(item);
-  }
-  summary.hidden = false;
+  isSubmitting = true;
   updateSelectionCount();
+  fetchButton.disabled = true;
+  status.textContent = "Fetching and validating resource…";
+  try {
+    const response = await fetch("/api/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: resourceUrl }),
+    });
+    if (!response.ok) {
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        // Use the standard message if the server did not return JSON.
+      }
+      throw new Error(data.error || "Could not fetch this resource.");
+    }
+
+    const blob = await response.blob();
+    const name = response.headers.get("X-Resource-Name") || "resource";
+    const file = new File([blob], name, { type: blob.type });
+    remoteResources.push({ file, sourceUrl: resourceUrl });
+    urlInput.value = "";
+    renderSelection();
+    status.textContent = `Fetched and validated ${name}. It is held in memory until you leave or reload this page.`;
+  } catch (error) {
+    status.textContent = error instanceof Error
+      ? error.message
+      : "Could not fetch this resource.";
+  } finally {
+    isSubmitting = false;
+    fetchButton.disabled = false;
+    updateSelectionCount();
+  }
 });
 
 list.addEventListener("change", updateSelectionCount);
-
-form.addEventListener("formdata", (event) => {
-  event.formData.delete(input.name);
-  for (const checkbox of list.querySelectorAll('input[type="checkbox"]:checked')) {
-    event.formData.append(input.name, selectedFiles[Number(checkbox.dataset.fileIndex)]);
-  }
-});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (isSubmitting) return;
 
-  const files = Array.from(list.querySelectorAll('input[type="checkbox"]:checked'))
-    .map((checkbox) => selectedFiles[Number(checkbox.dataset.fileIndex)]);
-  if (files.length === 0) return;
+  const entries = resourceEntries();
+  const selected = Array.from(list.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((checkbox) => entries[Number(checkbox.dataset.resourceIndex)])
+    .filter(Boolean);
+  if (selected.length === 0) return;
 
   isSubmitting = true;
   updateSelectionCount();
   form.setAttribute("aria-busy", "true");
-  status.textContent = "Checking files…";
+  status.textContent = "Checking resources…";
   results.replaceChildren();
   results.hidden = true;
 
   try {
-    for (const [index, file] of files.entries()) {
-      status.textContent = `Checking file ${index + 1} of ${files.length}: ${file.name}`;
+    for (const [index, resource] of selected.entries()) {
+      const { file, sourceUrl } = resource;
+      status.textContent = `Checking resource ${index + 1} of ${selected.length}: ${file.name}`;
       const formData = new FormData();
       formData.append("file", file, file.name);
 
@@ -97,29 +134,73 @@ form.addEventListener("submit", async (event) => {
           // Keep the user-facing error clear if the server returns non-JSON.
         }
         if (!response.ok) {
-          throw new Error(data.error || "Could not check this file. Please try again.");
+          throw new Error(data.error || "Could not check this resource. Please try again.");
         }
-        renderResult(data);
+        renderResult({ ...data, sourceUrl });
       } catch (error) {
         renderResult({
           file: file.name,
+          sourceUrl,
           error: error instanceof Error
             ? error.message
-            : "Could not check this file. Please try again.",
+            : "Could not check this resource. Please try again.",
         });
       }
     }
-    status.textContent = `Finished checking ${files.length} file${files.length === 1 ? "" : "s"}.`;
+    status.textContent = `Finished checking ${selected.length} resource${selected.length === 1 ? "" : "s"}.`;
   } catch (error) {
     status.textContent = error instanceof Error
       ? error.message
-      : "Could not check the files. Please try again.";
+      : "Could not check the resources. Please try again.";
   } finally {
     isSubmitting = false;
     form.removeAttribute("aria-busy");
     updateSelectionCount();
   }
 });
+
+function renderSelection() {
+  const entries = resourceEntries();
+  list.replaceChildren();
+  if (entries.length === 0) {
+    summary.hidden = true;
+    updateSelectionCount();
+    return;
+  }
+
+  for (const [index, resource] of entries.entries()) {
+    const item = document.createElement("li");
+    const choice = document.createElement("label");
+    const checkbox = document.createElement("input");
+    const name = document.createElement("span");
+    const meta = document.createElement("span");
+
+    choice.className = "file-choice";
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.dataset.resourceIndex = index;
+    checkbox.setAttribute("aria-label", `Include ${resource.file.name} in check`);
+    name.className = "file-name";
+    name.textContent = resource.file.name;
+    meta.className = "file-meta";
+    meta.textContent = `${fileType(resource.file)} · ${formatSize(resource.file.size)}`;
+    choice.append(checkbox, name, meta);
+    item.append(choice);
+
+    if (resource.sourceUrl) {
+      const source = document.createElement("a");
+      source.className = "file-source";
+      source.href = resource.sourceUrl;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      source.textContent = resource.sourceUrl;
+      item.append(source);
+    }
+    list.append(item);
+  }
+  summary.hidden = false;
+  updateSelectionCount();
+}
 
 function renderResult(result) {
   const section = document.createElement("section");
@@ -128,11 +209,23 @@ function renderResult(result) {
   heading.textContent = result.file;
   section.append(heading);
 
+  if (result.sourceUrl) {
+    const source = document.createElement("p");
+    const link = document.createElement("a");
+    source.className = "file-source";
+    link.href = result.sourceUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = result.sourceUrl;
+    source.append(link);
+    section.append(source);
+  }
+
   if (result.error) {
     const error = document.createElement("p");
     error.className = "error";
     error.setAttribute("role", "alert");
-    error.textContent = `Could not check this file. ${result.error}`;
+    error.textContent = `Could not check this resource. ${result.error}`;
     section.append(error);
   } else {
     const outcome = document.createElement("p");
@@ -167,7 +260,11 @@ function renderResult(result) {
 }
 
 function updateSelectionCount() {
+  const entries = resourceEntries();
   const selectedCount = list.querySelectorAll('input[type="checkbox"]:checked').length;
-  count.textContent = `${selectedCount} of ${selectedFiles.length} selected`;
+  count.textContent = `${selectedCount} of ${entries.length} selected`;
   submit.disabled = isSubmitting || selectedCount === 0;
+  fetchButton.disabled = isSubmitting || entries.length >= maxResources;
 }
+
+renderSelection();
