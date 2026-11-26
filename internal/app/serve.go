@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -20,8 +19,7 @@ const (
 	defaultServePort = 8080
 )
 
-func newServeCommand(webFiles fs.FS) *cobra.Command {
-	settings := viper.New()
+func newServeCommand(webFiles fs.FS, settings *viper.Viper) *cobra.Command {
 	var addr string
 	command := &cobra.Command{
 		Use:   "serve",
@@ -32,7 +30,7 @@ func newServeCommand(webFiles fs.FS) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runServeCommand(config, webFiles)
+			return runServeCommand(config, webFiles, settings)
 		},
 	}
 	command.Flags().String("host", defaultServeHost, "host interface to listen on")
@@ -46,9 +44,6 @@ func newServeCommand(webFiles fs.FS) *cobra.Command {
 	settings.SetDefault("port", defaultServePort)
 	settings.SetDefault("tls-cert", "")
 	settings.SetDefault("tls-key", "")
-	settings.SetEnvPrefix("GEN_AI_PRV")
-	settings.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	settings.AutomaticEnv()
 	_ = settings.BindPFlags(command.Flags())
 	return command
 }
@@ -91,7 +86,7 @@ func (config serveConfig) address() string {
 	return net.JoinHostPort(host, strconv.Itoa(config.Port))
 }
 
-func runServeCommand(config serveConfig, webFiles fs.FS) error {
+func runServeCommand(config serveConfig, webFiles fs.FS, settings *viper.Viper) error {
 	if config.Host == "" {
 		return fmt.Errorf("server host cannot be empty")
 	}
@@ -102,10 +97,7 @@ func runServeCommand(config serveConfig, webFiles fs.FS) error {
 		return fmt.Errorf("both TLS certificate and key must be provided")
 	}
 
-	envAPIKey, envSet := os.LookupEnv(apiKeyName)
-	apiKey, source, err := resolveServeAPIKey(envAPIKey, envSet, isRunningInContainer(), osAPIKeyStore{}, func() (string, error) {
-		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
-	})
+	apiKey, source, err := resolveServeAPIKey(settings, isRunningInContainer())
 	if err != nil {
 		return err
 	}
@@ -132,14 +124,17 @@ func runServeCommand(config serveConfig, webFiles fs.FS) error {
 	return nil
 }
 
-func resolveServeAPIKey(envValue string, envSet, inContainer bool, store apiKeyStore, fallback func() (string, error)) (string, apiKeySource, error) {
-	if !inContainer {
-		return resolveAPIKey(envValue, envSet, store, fallback)
+func resolveServeAPIKey(settings *viper.Viper, inContainer bool) (string, apiKeySource, error) {
+	envValue := settings.GetString(apiKeyViperKey)
+	envSet := settings.IsSet(apiKeyViperKey)
+	if inContainer {
+		apiKey := strings.TrimSpace(envValue)
+		if !envSet || apiKey == "" {
+			return "", "", fmt.Errorf("%s must be set in the environment when running in a container", apiKeyName)
+		}
+		return apiKey, apiKeySourceEnvironment, nil
 	}
-
-	apiKey := strings.TrimSpace(envValue)
-	if !envSet || apiKey == "" {
-		return "", "", fmt.Errorf("%s must be set in the environment when running in a container", apiKeyName)
-	}
-	return apiKey, apiKeySourceEnvironment, nil
+	return resolveAPIKey(envValue, envSet, osAPIKeyStore{}, func() (string, error) {
+		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
+	})
 }

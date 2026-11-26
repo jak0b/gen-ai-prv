@@ -386,7 +386,7 @@ func TestRunServeCommandValidatesServerSettings(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := runServeCommand(test.config, testWebFiles); err == nil || !strings.Contains(err.Error(), test.want) {
+			if err := runServeCommand(test.config, testWebFiles, viper.New()); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Errorf("runServeCommand() error = %v, want %q", err, test.want)
 			}
 		})
@@ -407,13 +407,34 @@ func TestServeCommandAcceptsFlagsAndEnvironment(t *testing.T) {
 			if test.env != "" {
 				t.Setenv("GEN_AI_PRV_PORT", test.env)
 			}
-			command := newServeCommand(testWebFiles)
+			command := newServeCommand(testWebFiles, newAppSettings())
 			command.SetArgs(test.args)
 			err := command.Execute()
 			if err == nil || !strings.Contains(err.Error(), "server port must be between 1 and 65535") {
 				t.Fatalf("Execute() error = %v, want invalid port validation", err)
 			}
 		})
+	}
+}
+
+func TestResolveServeAPIKeyUsesViperEnvironment(t *testing.T) {
+	t.Setenv(apiKeyName, " serve-key ")
+
+	apiKey, source, err := resolveServeAPIKey(newAppSettings(), true)
+	if err != nil {
+		t.Fatalf("resolveServeAPIKey() error = %v", err)
+	}
+	if apiKey != "serve-key" || source != apiKeySourceEnvironment {
+		t.Errorf("resolveServeAPIKey() = (%q, %q), want (serve-key, %q)", apiKey, source, apiKeySourceEnvironment)
+	}
+}
+
+func TestResolveServeAPIKeyRequiresEnvironmentKeyInContainer(t *testing.T) {
+	t.Setenv(apiKeyName, "")
+
+	_, _, err := resolveServeAPIKey(newAppSettings(), true)
+	if err == nil || !strings.Contains(err.Error(), "must be set in the environment when running in a container") {
+		t.Fatalf("resolveServeAPIKey() error = %v, want missing container environment key error", err)
 	}
 }
 

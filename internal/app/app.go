@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/zalando/go-keyring"
 	"golang.org/x/term"
 )
@@ -17,6 +18,7 @@ import (
 const (
 	keyringService = "com.jak0b.gen-ai-prv"
 	apiKeyName     = "OPENAI_API_KEY"
+	apiKeyViperKey = "openai-api-key"
 )
 
 type apiKeySource string
@@ -49,6 +51,7 @@ func Run(webFiles fs.FS) error {
 
 func newRootCommand(webFiles fs.FS) *cobra.Command {
 	var jsonOutput bool
+	settings := newAppSettings()
 
 	root := &cobra.Command{
 		Use:           "gen-ai-prv [flags] <image|audio|pdf>...",
@@ -64,8 +67,7 @@ func newRootCommand(webFiles fs.FS) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, paths []string) error {
-			envAPIKey, envSet := os.LookupEnv(apiKeyName)
-			apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
+			apiKey, source, err := resolveAPIKey(settings.GetString(apiKeyViperKey), settings.IsSet(apiKeyViperKey), osAPIKeyStore{}, promptForAPIKey)
 			if err != nil {
 				return err
 			}
@@ -103,8 +105,17 @@ func newRootCommand(webFiles fs.FS) *cobra.Command {
 		},
 	}
 	root.Flags().BoolVar(&jsonOutput, "json", false, "print the complete API response as JSON")
-	root.AddCommand(newServeCommand(webFiles))
+	root.AddCommand(newServeCommand(webFiles, settings))
 	return root
+}
+
+func newAppSettings() *viper.Viper {
+	settings := viper.New()
+	settings.SetEnvPrefix("GEN_AI_PRV")
+	settings.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	settings.AutomaticEnv()
+	_ = settings.BindEnv(apiKeyViperKey, apiKeyName)
+	return settings
 }
 
 func apiKeySourceMessage(source apiKeySource) string {
