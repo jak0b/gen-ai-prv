@@ -14,12 +14,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	defaultServeHost = "127.0.0.1"
-	defaultServePort = 8080
-)
-
 func newServeCommand(webFiles fs.FS, settings *viper.Viper) *cobra.Command {
+	settings.SetDefault("host", "127.0.0.1")
+	settings.SetDefault("port", 8080)
+	settings.SetDefault("tls-cert", "")
+	settings.SetDefault("tls-key", "")
+
 	var addr string
 	command := &cobra.Command{
 		Use:   "serve",
@@ -33,17 +33,13 @@ func newServeCommand(webFiles fs.FS, settings *viper.Viper) *cobra.Command {
 			return runServeCommand(config, webFiles, settings)
 		},
 	}
-	command.Flags().String("host", defaultServeHost, "host interface to listen on")
-	command.Flags().Int("port", defaultServePort, "port to listen on")
+	command.Flags().String("host", settings.GetString("host"), "host interface to listen on")
+	command.Flags().Int("port", settings.GetInt("port"), "port to listen on")
 	command.Flags().String("tls-cert", "", "TLS certificate file (enables HTTPS with --tls-key)")
 	command.Flags().String("tls-key", "", "TLS private key file (enables HTTPS with --tls-cert)")
 	command.Flags().StringVar(&addr, "addr", "", "listen address (deprecated; use --host and --port)")
 	_ = command.Flags().MarkDeprecated("addr", "use --host and --port instead")
 
-	settings.SetDefault("host", defaultServeHost)
-	settings.SetDefault("port", defaultServePort)
-	settings.SetDefault("tls-cert", "")
-	settings.SetDefault("tls-key", "")
 	_ = settings.BindPFlags(command.Flags())
 	return command
 }

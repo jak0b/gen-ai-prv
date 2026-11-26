@@ -341,8 +341,8 @@ func TestServeHandlerDoesNotRegisterLegacyCheckRoute(t *testing.T) {
 
 func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
 	settings := viper.New()
-	settings.SetDefault("host", defaultServeHost)
-	settings.SetDefault("port", defaultServePort)
+	settings.SetDefault("host", "127.0.0.1")
+	settings.SetDefault("port", 8080)
 	config, err := readServeConfig(settings, "[::1]:9090", true)
 	if err != nil {
 		t.Fatalf("readServeConfig() error = %v", err)
@@ -356,7 +356,7 @@ func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
 }
 
 func TestServeConfigAddressSupportsDualStackWildcard(t *testing.T) {
-	config := serveConfig{Host: ":", Port: defaultServePort}
+	config := serveConfig{Host: ":", Port: 8080}
 	if got, want := config.address(), ":8080"; got != want {
 		t.Errorf("address() = %q, want %q", got, want)
 	}
@@ -370,17 +370,17 @@ func TestRunServeCommandValidatesServerSettings(t *testing.T) {
 	}{
 		{
 			name:   "missing host",
-			config: serveConfig{Port: defaultServePort},
+			config: serveConfig{Port: 8080},
 			want:   "server host cannot be empty",
 		},
 		{
 			name:   "invalid port",
-			config: serveConfig{Host: defaultServeHost, Port: 65536},
+			config: serveConfig{Host: "127.0.0.1", Port: 65536},
 			want:   "server port must be between 1 and 65535",
 		},
 		{
 			name:   "TLS certificate without key",
-			config: serveConfig{Host: defaultServeHost, Port: defaultServePort, TLSCert: "server.crt"},
+			config: serveConfig{Host: "127.0.0.1", Port: 8080, TLSCert: "server.crt"},
 			want:   "both TLS certificate and key must be provided",
 		},
 	}
