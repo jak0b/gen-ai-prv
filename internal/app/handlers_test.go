@@ -25,6 +25,9 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "Drag files here") {
 		t.Fatal("embedded frontend is missing the drag-and-drop file chooser")
 	}
+	if !strings.Contains(response.Body.String(), "Add a resource URL") {
+		t.Fatal("embedded frontend is missing the URL resource field")
+	}
 	if !strings.Contains(response.Body.String(), `src="/app.js"`) {
 		t.Fatal("embedded frontend is missing the file summary script")
 	}
@@ -34,7 +37,7 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 
 	scriptResponse := httptest.NewRecorder()
 	handler.ServeHTTP(scriptResponse, httptest.NewRequest(http.MethodGet, "/app.js", nil))
-	if scriptResponse.Code != http.StatusOK || !strings.Contains(scriptResponse.Body.String(), "formatSize") {
+	if scriptResponse.Code != http.StatusOK || !strings.Contains(scriptResponse.Body.String(), `fetch("/api/fetch"`) {
 		t.Errorf("GET /app.js status = %d, body = %q", scriptResponse.Code, scriptResponse.Body.String())
 	}
 }

@@ -14,6 +14,7 @@ import (
 const (
 	multipartOverheadLimit = 1 << 20
 	maxSingleRequest       = maxFileSize + 1 + multipartOverheadLimit
+	maxResourceURLRequest  = 8 << 10
 )
 
 type serveResult struct {
@@ -54,11 +55,16 @@ func appendServeRequestAPILog(ctx context.Context, call string) bool {
 type serveHandler struct {
 	apiKey      string
 	check       uploadedFileCheckFunc
+	fetch       resourceFetchFunc
 	staticFiles http.Handler
 	mux         *http.ServeMux
 }
 
 func newServeHandler(apiKey string, check uploadedFileCheckFunc, webFiles fs.FS) http.Handler {
+	return newServeHandlerWithFetcher(apiKey, check, fetchRemoteResource, webFiles)
+}
+
+func newServeHandlerWithFetcher(apiKey string, check uploadedFileCheckFunc, fetch resourceFetchFunc, webFiles fs.FS) http.Handler {
 	webDir, err := fs.Sub(webFiles, "web")
 	if err != nil {
 		panic(err)
@@ -67,11 +73,13 @@ func newServeHandler(apiKey string, check uploadedFileCheckFunc, webFiles fs.FS)
 	handler := &serveHandler{
 		apiKey:      apiKey,
 		check:       check,
+		fetch:       fetch,
 		staticFiles: http.FileServer(http.FS(webDir)),
 		mux:         http.NewServeMux(),
 	}
 	handler.mux.Handle("GET /", http.HandlerFunc(handler.serveStatic))
 	handler.mux.HandleFunc("POST /api/check", handler.checkUpload)
+	handler.mux.HandleFunc("POST /api/fetch", handler.fetchURL)
 
 	return handler
 }
@@ -93,6 +101,38 @@ func (h *serveHandler) checkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (h *serveHandler) fetchURL(w http.ResponseWriter, r *http.Request) {
+	setServeHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	r.Body = http.MaxBytesReader(w, r.Body, maxResourceURLRequest)
+	var request struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeServeError(w, "Enter a valid HTTP or HTTPS URL.", http.StatusBadRequest)
+		return
+	}
+	resource, err := h.fetch(r.Context(), request.URL)
+	if err != nil {
+		writeServeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A filename is returned as a header only after URL parsing and format
+	// validation, and controls and path separators have already been removed.
+	w.Header().Set("Content-Type", resource.contentType)
+	w.Header().Set("X-Resource-Name", resource.filename)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resource.data)
+}
+
+func writeServeError(w http.ResponseWriter, message string, status int) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(struct {
+		Error string `json:"error"`
+	}{Error: message})
 }
 
 func (h *serveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
