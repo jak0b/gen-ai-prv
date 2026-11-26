@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/zalando/go-keyring"
 )
 
@@ -320,6 +321,92 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 	handler.ServeHTTP(scriptResponse, httptest.NewRequest(http.MethodGet, "/app.js", nil))
 	if scriptResponse.Code != http.StatusOK || !strings.Contains(scriptResponse.Body.String(), "formatSize") {
 		t.Errorf("GET /app.js status = %d, body = %q", scriptResponse.Code, scriptResponse.Body.String())
+	}
+}
+
+func TestReadServeConfigFromFile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "server.yaml")
+	configData := []byte("host: 0.0.0.0\nport: 9443\ntls-cert: server.crt\ntls-key: server.key\n")
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := viper.New()
+	settings.SetDefault("host", defaultServeHost)
+	settings.SetDefault("port", defaultServePort)
+	config, err := readServeConfig(settings, configPath, "", false)
+	if err != nil {
+		t.Fatalf("readServeConfig() error = %v", err)
+	}
+	if config != (serveConfig{Host: "0.0.0.0", Port: 9443, TLSCert: "server.crt", TLSKey: "server.key"}) {
+		t.Errorf("readServeConfig() = %+v, want values from config file", config)
+	}
+	if got := config.address(); got != "0.0.0.0:9443" {
+		t.Errorf("address() = %q, want 0.0.0.0:9443", got)
+	}
+}
+
+func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
+	settings := viper.New()
+	settings.SetDefault("host", defaultServeHost)
+	settings.SetDefault("port", defaultServePort)
+	configPath := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := readServeConfig(settings, configPath, "[::1]:9090", true)
+	if err != nil {
+		t.Fatalf("readServeConfig() error = %v", err)
+	}
+	if config.Host != "::1" || config.Port != 9090 {
+		t.Errorf("config = %+v, want IPv6 host and port 9090", config)
+	}
+	if got := config.address(); got != "[::1]:9090" {
+		t.Errorf("address() = %q, want [::1]:9090", got)
+	}
+}
+
+func TestRunServeCommandValidatesServerSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		config serveConfig
+		want   string
+	}{
+		{
+			name:   "missing host",
+			config: serveConfig{Port: defaultServePort},
+			want:   "server host cannot be empty",
+		},
+		{
+			name:   "invalid port",
+			config: serveConfig{Host: defaultServeHost, Port: 65536},
+			want:   "server port must be between 1 and 65535",
+		},
+		{
+			name:   "TLS certificate without key",
+			config: serveConfig{Host: defaultServeHost, Port: defaultServePort, TLSCert: "server.crt"},
+			want:   "both TLS certificate and key must be provided",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := runServeCommand(test.config); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("runServeCommand() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestServeCommandUsesViperBoundFlags(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	command := newServeCommand()
+	command.SetArgs([]string{"--config", configPath, "--host", "localhost", "--port", "0"})
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "server port must be between 1 and 65535") {
+		t.Fatalf("Execute() error = %v, want invalid port validation", err)
 	}
 }
 

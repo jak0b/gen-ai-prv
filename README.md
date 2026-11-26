@@ -27,9 +27,30 @@ Then open <http://127.0.0.1:8080>. The page supports selecting or dragging
 multiple files into the file chooser and checks them one at a time. Each
 frontend API request contains exactly one file. The page serves its HTML and
 CSS from the executable (no extra frontend files are needed). It uses
-`OPENAI_API_KEY` or a key saved in the OS keyring. To choose another listen
-address, use `./gen-ai-prv serve -addr 127.0.0.1:9090`. The default address is
-localhost; only bind to a network interface you trust.
+`OPENAI_API_KEY` or a key saved in the OS keyring. Configure the server with
+`--host`, `--port`, `--tls-cert`, and `--tls-key`; for example:
+
+```sh
+./gen-ai-prv serve --host 0.0.0.0 --port 9090
+./gen-ai-prv serve --host example.com --port 8443 --tls-cert server.crt --tls-key server.key
+```
+
+TLS is enabled when both certificate and key are provided. Settings may also be
+provided in `gen-ai-prv.yaml` in the current directory, `~/.config/gen-ai-prv/`,
+or the home directory. Use `--config path/to/config.yaml` to select another
+file. For example:
+
+```yaml
+host: 127.0.0.1
+port: 8443
+tls-cert: server.crt
+tls-key: server.key
+```
+
+CLI flags override configuration-file values; `GEN_AI_PRV_HOST`,
+`GEN_AI_PRV_PORT`, `GEN_AI_PRV_TLS_CERT`, and `GEN_AI_PRV_TLS_KEY` environment
+variables are also supported. The deprecated `--addr` flag remains available.
+Only bind to a network interface you trust.
 At startup, the server reports whether it selected the key from
 `OPENAI_API_KEY` or the OS keyring.
 

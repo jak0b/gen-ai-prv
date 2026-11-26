@@ -9,11 +9,15 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -21,7 +25,8 @@ const (
 	multipartMemory  = 1 << 20
 	maxServeRequest  = (maxFileSize+1)*maxServeFiles + multipartMemory
 	maxSingleRequest = maxFileSize + 1 + multipartMemory
-	defaultServeAddr = "127.0.0.1:8080"
+	defaultServeHost = "127.0.0.1"
+	defaultServePort = 8080
 )
 
 //go:embed web/*
@@ -42,20 +47,101 @@ type servePage struct {
 var resultTemplate = template.Must(template.ParseFS(webFiles, "web/result.html"))
 
 func newServeCommand() *cobra.Command {
-	addr := defaultServeAddr
+	settings := viper.New()
+	var configFile string
+	var addr string
 	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web interface",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runServeCommand(addr)
+		RunE: func(command *cobra.Command, _ []string) error {
+			config, err := readServeConfig(settings, configFile, addr, command.Flags().Changed("addr"))
+			if err != nil {
+				return err
+			}
+			return runServeCommand(config)
 		},
 	}
-	command.Flags().StringVar(&addr, "addr", defaultServeAddr, "address to listen on")
+	command.Flags().StringVar(&configFile, "config", "", "path to YAML server configuration file")
+	command.Flags().String("host", defaultServeHost, "host interface to listen on")
+	command.Flags().Int("port", defaultServePort, "port to listen on")
+	command.Flags().String("tls-cert", "", "TLS certificate file (enables HTTPS with --tls-key)")
+	command.Flags().String("tls-key", "", "TLS private key file (enables HTTPS with --tls-cert)")
+	command.Flags().StringVar(&addr, "addr", "", "listen address (deprecated; use --host and --port)")
+	_ = command.Flags().MarkDeprecated("addr", "use --host and --port instead")
+
+	settings.SetDefault("host", defaultServeHost)
+	settings.SetDefault("port", defaultServePort)
+	settings.SetDefault("tls-cert", "")
+	settings.SetDefault("tls-key", "")
+	settings.SetEnvPrefix("GEN_AI_PRV")
+	settings.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	settings.AutomaticEnv()
+	_ = settings.BindPFlags(command.Flags())
 	return command
 }
 
-func runServeCommand(addr string) error {
+func readServeConfig(settings *viper.Viper, configFile, addr string, addrSet bool) (serveConfig, error) {
+	if configFile != "" {
+		settings.SetConfigFile(configFile)
+	} else {
+		settings.SetConfigName("gen-ai-prv")
+		settings.SetConfigType("yaml")
+		settings.AddConfigPath(".")
+		if home, err := os.UserHomeDir(); err == nil {
+			settings.AddConfigPath(filepath.Join(home, ".config", "gen-ai-prv"))
+			settings.AddConfigPath(home)
+		}
+	}
+	if err := settings.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return serveConfig{}, fmt.Errorf("read server configuration: %w", err)
+		}
+	}
+
+	config := serveConfig{
+		Host:    settings.GetString("host"),
+		Port:    settings.GetInt("port"),
+		TLSCert: settings.GetString("tls-cert"),
+		TLSKey:  settings.GetString("tls-key"),
+	}
+	if addrSet {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return serveConfig{}, fmt.Errorf("invalid --addr %q: %w", addr, err)
+		}
+		config.Host = host
+		config.Port, err = strconv.Atoi(port)
+		if err != nil {
+			return serveConfig{}, fmt.Errorf("invalid port in --addr %q: %w", addr, err)
+		}
+	}
+	return config, nil
+}
+
+type serveConfig struct {
+	Host    string
+	Port    int
+	TLSCert string
+	TLSKey  string
+}
+
+func (config serveConfig) address() string {
+	return net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
+}
+
+func runServeCommand(config serveConfig) error {
+	if config.Host == "" {
+		return fmt.Errorf("server host cannot be empty")
+	}
+	if config.Port < 1 || config.Port > 65535 {
+		return fmt.Errorf("server port must be between 1 and 65535")
+	}
+	if (config.TLSCert == "") != (config.TLSKey == "") {
+		return fmt.Errorf("both TLS certificate and key must be provided")
+	}
+
 	envAPIKey, envSet := os.LookupEnv(apiKeyName)
 	apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, func() (string, error) {
 		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
@@ -65,13 +151,23 @@ func runServeCommand(addr string) error {
 	}
 
 	server := &http.Server{
-		Addr:    addr,
+		Addr:    config.address(),
 		Handler: newServeHandler(apiKey, checkFile),
 	}
 	log.Print(apiKeySourceMessage(source))
-	log.Printf("Serving at http://%s", addr)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("start server: %w", err)
+	scheme := "http"
+	if config.TLSCert != "" {
+		scheme = "https"
+	}
+	log.Printf("Serving at %s://%s", scheme, server.Addr)
+	var serveErr error
+	if config.TLSCert != "" {
+		serveErr = server.ListenAndServeTLS(config.TLSCert, config.TLSKey)
+	} else {
+		serveErr = server.ListenAndServe()
+	}
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return fmt.Errorf("start server: %w", serveErr)
 	}
 	return nil
 }
