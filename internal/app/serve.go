@@ -2,12 +2,12 @@ package app
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"log"
 	"mime/multipart"
 	"net"
@@ -31,9 +31,6 @@ const (
 	defaultServePort = 8080
 )
 
-//go:embed web/*
-var webFiles embed.FS
-
 type serveResult struct {
 	File     string        `json:"file"`
 	Response checkResponse `json:"response,omitempty"`
@@ -45,8 +42,6 @@ type servePage struct {
 	Results []serveResult `json:"results,omitempty"`
 	Error   string        `json:"error,omitempty"`
 }
-
-var resultTemplate = template.Must(template.ParseFS(webFiles, "web/result.html"))
 
 type serveRequestLogContextKey struct{}
 
@@ -76,7 +71,7 @@ func appendServeRequestAPILog(ctx context.Context, call string) bool {
 	return true
 }
 
-func newServeCommand() *cobra.Command {
+func newServeCommand(webFiles fs.FS) *cobra.Command {
 	settings := viper.New()
 	var configFile string
 	var addr string
@@ -89,7 +84,7 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runServeCommand(config)
+			return runServeCommand(config, webFiles)
 		},
 	}
 	command.Flags().StringVar(&configFile, "config", "", "path to YAML server configuration file")
@@ -184,7 +179,7 @@ func (config serveConfig) address() string {
 	return net.JoinHostPort(host, strconv.Itoa(config.Port))
 }
 
-func runServeCommand(config serveConfig) error {
+func runServeCommand(config serveConfig, webFiles fs.FS) error {
 	if config.Host == "" {
 		return fmt.Errorf("server host cannot be empty")
 	}
@@ -205,7 +200,7 @@ func runServeCommand(config serveConfig) error {
 
 	server := &http.Server{
 		Addr:    config.address(),
-		Handler: newServeHandler(apiKey, checkFile),
+		Handler: newServeHandler(apiKey, checkFile, webFiles),
 	}
 	log.Print(apiKeySourceMessage(source))
 	scheme := "http"
@@ -225,7 +220,8 @@ func runServeCommand(config serveConfig) error {
 	return nil
 }
 
-func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
+func newServeHandler(apiKey string, check fileCheckFunc, webFiles fs.FS) http.Handler {
+	resultTemplate := template.Must(template.ParseFS(webFiles, "web/result.html"))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -246,7 +242,7 @@ func newServeHandler(apiKey string, check fileCheckFunc) http.Handler {
 	mux.HandleFunc("POST /check", func(w http.ResponseWriter, r *http.Request) {
 		setServeHeaders(w)
 		page, status := checkUploadedFiles(w, r, apiKey, check)
-		writeServePage(w, page, status)
+		writeServePage(w, page, status, resultTemplate)
 	})
 	mux.HandleFunc("POST /api/check", func(w http.ResponseWriter, r *http.Request) {
 		setServeHeaders(w)
@@ -374,7 +370,7 @@ func setServeHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 }
 
-func writeServePage(w http.ResponseWriter, page servePage, status int) {
+func writeServePage(w http.ResponseWriter, page servePage, status int, resultTemplate *template.Template) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := resultTemplate.Execute(w, page); err != nil {

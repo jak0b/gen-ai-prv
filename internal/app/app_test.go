@@ -18,6 +18,8 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+var testWebFiles = os.DirFS("../..")
+
 type fakeAPIKeyStore struct {
 	key       string
 	getErr    error
@@ -42,7 +44,7 @@ func (s *fakeAPIKeyStore) Set(service, account, key string) error {
 }
 
 func TestRootCommandHelpIncludesFlagsAndServeCommand(t *testing.T) {
-	command := newRootCommand()
+	command := newRootCommand(testWebFiles)
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&output)
@@ -59,7 +61,7 @@ func TestRootCommandHelpIncludesFlagsAndServeCommand(t *testing.T) {
 }
 
 func TestRootCommandRequiresFileArguments(t *testing.T) {
-	command := newRootCommand()
+	command := newRootCommand(testWebFiles)
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&output)
@@ -300,7 +302,7 @@ func TestServeHandlerEmbedsFrontend(t *testing.T) {
 	handler := newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
 		t.Fatal("check function called for frontend request")
 		return checkResponse{}, nil
-	})
+	}, testWebFiles)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -428,7 +430,7 @@ func TestRunServeCommandValidatesServerSettings(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := runServeCommand(test.config); err == nil || !strings.Contains(err.Error(), test.want) {
+			if err := runServeCommand(test.config, testWebFiles); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Errorf("runServeCommand() error = %v, want %q", err, test.want)
 			}
 		})
@@ -440,7 +442,7 @@ func TestServeCommandUsesViperBoundFlags(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	command := newServeCommand()
+	command := newServeCommand(testWebFiles)
 	command.SetArgs([]string{"--config", configPath, "--host", "localhost", "--port", "0"})
 	err := command.Execute()
 	if err == nil || !strings.Contains(err.Error(), "server port must be between 1 and 65535") {
@@ -459,7 +461,7 @@ func TestServeHandlerChecksUploadedFiles(t *testing.T) {
 			t.Errorf("uploaded temporary file does not exist: %v", err)
 		}
 		return checkResponse{Results: []checkResult{{Type: "c2pa", Outcome: "detected"}}}, nil
-	})
+	}, testWebFiles)
 
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
@@ -514,7 +516,7 @@ func TestServeAPIRequiresExactlyOneFile(t *testing.T) {
 	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
 		t.Fatal("check function called for a request containing multiple files")
 		return checkResponse{}, nil
-	}).ServeHTTP(response, request)
+	}, testWebFiles).ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("POST /api/check status = %d, want %d", response.Code, http.StatusBadRequest)
@@ -554,7 +556,7 @@ func TestServeAPIChecksOneUploadedFile(t *testing.T) {
 			t.Errorf("API key = %q, want api-key", apiKey)
 		}
 		return checkResponse{Results: []checkResult{{Type: "c2pa", Outcome: "detected"}}}, nil
-	}).ServeHTTP(response, request)
+	}, testWebFiles).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST /api/check status = %d, body = %q", response.Code, response.Body.String())
@@ -583,7 +585,7 @@ func TestServeHandlerRequiresUploadedFiles(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/check", &body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	response := httptest.NewRecorder()
-	newServeHandler("api-key", checkFile).ServeHTTP(response, request)
+	newServeHandler("api-key", checkFile, testWebFiles).ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Choose at least one file") {
 		t.Errorf("POST /check response = %d %q, want missing-file error", response.Code, response.Body.String())
@@ -609,7 +611,7 @@ func TestServeHandlerDisplaysCheckError(t *testing.T) {
 	checkErr := errors.New("OpenAI API returned 429 Too Many Requests (rate_limit_exceeded): Rate limit reached")
 	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
 		return checkResponse{}, checkErr
-	}).ServeHTTP(response, request)
+	}, testWebFiles).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST /check status = %d, body = %q", response.Code, response.Body.String())

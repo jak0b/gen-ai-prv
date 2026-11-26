@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -42,11 +43,11 @@ func (osAPIKeyStore) Set(service, user, password string) error {
 }
 
 // Run executes the command-line application.
-func Run() error {
-	return newRootCommand().Execute()
+func Run(webFiles fs.FS) error {
+	return newRootCommand(webFiles).Execute()
 }
 
-func newRootCommand() *cobra.Command {
+func newRootCommand(webFiles fs.FS) *cobra.Command {
 	var jsonOutput bool
 
 	root := &cobra.Command{
@@ -102,7 +103,7 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 	root.Flags().BoolVar(&jsonOutput, "json", false, "print the complete API response as JSON")
-	root.AddCommand(newServeCommand())
+	root.AddCommand(newServeCommand(webFiles))
 	return root
 }
 
