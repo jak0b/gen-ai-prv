@@ -17,6 +17,17 @@ export OPENAI_API_KEY="your-api-key"
 ./gen-ai-prv ./image.png
 ```
 
+Pass multiple paths to check several files in one run:
+
+```sh
+./gen-ai-prv ./image.png ./audio.mp3 ./document.pdf
+```
+
+Each file is checked with a separate API request. The text output labels each
+result with its file path. With multiple files, `-json` prints an array of
+objects containing each `file` path and its API `response`; with one file, it
+continues to print the API response directly.
+
 `OPENAI_API_KEY` takes precedence when set. Otherwise, the CLI uses a key saved
 in the OS keyring; if no key is saved, it prompts for one without echoing it
 and stores it in the keyring for future runs.

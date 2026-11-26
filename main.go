@@ -45,15 +45,15 @@ func (osAPIKeyStore) Set(service, user, password string) error {
 func main() {
 	jsonOutput := flag.Bool("json", false, "print the complete API response as JSON")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <image|audio|pdf>\n\n", filepath.Base(os.Args[0]))
-		fmt.Fprintln(flag.CommandLine.Output(), "Check a file for supported OpenAI provenance signals.")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <image|audio|pdf>...\n\n", filepath.Base(os.Args[0]))
+		fmt.Fprintln(flag.CommandLine.Output(), "Check files for supported OpenAI provenance signals.")
 		fmt.Fprintln(flag.CommandLine.Output(), "\nFlags:")
 		flag.PrintDefaults()
 		fmt.Fprintln(flag.CommandLine.Output(), "\nSet OPENAI_API_KEY to your OpenAI API key.")
 	}
 	flag.Parse()
 
-	if flag.NArg() != 1 {
+	if flag.NArg() < 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -73,7 +73,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Using interactively entered API key (saved to OS keyring).")
 	}
 
-	result, err := checkFile(context.Background(), flag.Arg(0), apiKey)
+	results, err := checkFiles(context.Background(), flag.Args(), apiKey, checkFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -82,14 +82,46 @@ func main() {
 	if *jsonOutput {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(result); err != nil {
+		var output any = results[0].Response
+		if len(results) > 1 {
+			output = results
+		}
+		if err := encoder.Encode(output); err != nil {
 			fmt.Fprintf(os.Stderr, "error: writing JSON: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	printSummary(os.Stdout, result, term.IsTerminal(int(os.Stdout.Fd())))
+	color := term.IsTerminal(int(os.Stdout.Fd()))
+	for i, result := range results {
+		if len(results) > 1 {
+			fmt.Fprintf(os.Stdout, "%s:\n", result.File)
+		}
+		printSummary(os.Stdout, result.Response, color)
+		if i < len(results)-1 {
+			fmt.Fprintln(os.Stdout)
+		}
+	}
+}
+
+type fileCheckResult struct {
+	File     string        `json:"file"`
+	Response checkResponse `json:"response"`
+}
+
+type fileCheckFunc func(context.Context, string, string) (checkResponse, error)
+
+func checkFiles(ctx context.Context, paths []string, apiKey string, check fileCheckFunc) ([]fileCheckResult, error) {
+	results := make([]fileCheckResult, 0, len(paths))
+	for _, path := range paths {
+		response, err := check(ctx, path, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("check %q: %w", path, err)
+		}
+		results = append(results, fileCheckResult{File: path, Response: response})
+	}
+	return results, nil
 }
 
 func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func() (string, error)) (string, apiKeySource, error) {

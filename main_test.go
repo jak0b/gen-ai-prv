@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -121,6 +124,44 @@ func TestContentTypeFor(t *testing.T) {
 func TestContentTypeForRejectsUnsupportedExtension(t *testing.T) {
 	if _, err := contentTypeFor("notes.txt"); err == nil {
 		t.Fatal("contentTypeFor() accepted a text file")
+	}
+}
+
+func TestCheckFilesChecksEachPath(t *testing.T) {
+	paths := []string{"image.png", "audio.mp3"}
+	var checked []string
+	results, err := checkFiles(context.Background(), paths, "api-key", func(_ context.Context, path, apiKey string) (checkResponse, error) {
+		checked = append(checked, path)
+		if apiKey != "api-key" {
+			t.Errorf("API key = %q, want api-key", apiKey)
+		}
+		return checkResponse{Object: path}, nil
+	})
+	if err != nil {
+		t.Fatalf("checkFiles() error = %v", err)
+	}
+	if !reflect.DeepEqual(checked, paths) {
+		t.Errorf("checked paths = %v, want %v", checked, paths)
+	}
+	if len(results) != len(paths) {
+		t.Fatalf("got %d results, want %d", len(results), len(paths))
+	}
+	for i, path := range paths {
+		if results[i].File != path || results[i].Response.Object != path {
+			t.Errorf("result %d = %+v, want file and response object %q", i, results[i], path)
+		}
+	}
+}
+
+func TestCheckFilesReportsFailingPath(t *testing.T) {
+	_, err := checkFiles(context.Background(), []string{"image.png", "missing.pdf"}, "api-key", func(_ context.Context, path, _ string) (checkResponse, error) {
+		if path == "missing.pdf" {
+			return checkResponse{}, errors.New("file not found")
+		}
+		return checkResponse{}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), `check "missing.pdf": file not found`) {
+		t.Fatalf("checkFiles() error = %v, want failing path and cause", err)
 	}
 }
 
