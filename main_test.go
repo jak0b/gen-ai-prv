@@ -36,6 +36,13 @@ func TestContentTypeForRejectsUnsupportedExtension(t *testing.T) {
 	}
 }
 
+func TestUploadFilenameIsASCIIAndPreservesExtension(t *testing.T) {
+	got := uploadFilename("folder/powiatowy urza\u0328d pracy pup.JPG")
+	if got != "upload.jpg" {
+		t.Errorf("uploadFilename() = %q, want %q", got, "upload.jpg")
+	}
+}
+
 func TestPrintSummaryDoesNotCallUndetectedHumanCreated(t *testing.T) {
 	var output bytes.Buffer
 	printSummary(&output, checkResponse{

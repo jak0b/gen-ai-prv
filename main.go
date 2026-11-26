@@ -117,7 +117,7 @@ func checkFile(ctx context.Context, path, apiKey string) (checkResponse, error) 
 		header := make(textproto.MIMEHeader)
 		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
 			"name":     "file",
-			"filename": filepath.Base(path),
+			"filename": uploadFilename(path),
 		}))
 		header.Set("Content-Type", contentType)
 		part, createErr := writer.CreatePart(header)
@@ -162,6 +162,12 @@ func checkFile(ctx context.Context, path, apiKey string) (checkResponse, error) 
 		return checkResponse{}, fmt.Errorf("decode API response: %w", err)
 	}
 	return result, nil
+}
+
+func uploadFilename(path string) string {
+	// Use a plain ASCII filename so multipart encoders don't produce a
+	// filename* parameter for Unicode paths, which some API parsers reject.
+	return "upload" + strings.ToLower(filepath.Ext(path))
 }
 
 func contentTypeFor(path string) (string, error) {
