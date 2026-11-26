@@ -82,20 +82,37 @@ func newServeCommand() *cobra.Command {
 }
 
 func readServeConfig(settings *viper.Viper, configFile, addr string, addrSet bool) (serveConfig, error) {
+	readConfig := configFile != ""
 	if configFile != "" {
 		settings.SetConfigFile(configFile)
 	} else {
-		settings.SetConfigName("gen-ai-prv")
-		settings.SetConfigType("yaml")
-		settings.AddConfigPath(".")
+		configPaths := []string{"."}
 		if home, err := os.UserHomeDir(); err == nil {
-			settings.AddConfigPath(filepath.Join(home, ".config", "gen-ai-prv"))
-			settings.AddConfigPath(home)
+			configPaths = append(configPaths,
+				filepath.Join(home, ".config", "gen-ai-prv"),
+				home,
+			)
+		}
+		for _, directory := range configPaths {
+			for _, name := range []string{"gen-ai-prv.yaml", "gen-ai-prv.yml"} {
+				path := filepath.Join(directory, name)
+				info, err := os.Stat(path)
+				if err == nil && !info.IsDir() {
+					settings.SetConfigFile(path)
+					readConfig = true
+					break
+				}
+				if err != nil && !os.IsNotExist(err) {
+					return serveConfig{}, fmt.Errorf("inspect server configuration %q: %w", path, err)
+				}
+			}
+			if readConfig {
+				break
+			}
 		}
 	}
-	if err := settings.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &notFound) {
+	if readConfig {
+		if err := settings.ReadInConfig(); err != nil {
 			return serveConfig{}, fmt.Errorf("read server configuration: %w", err)
 		}
 	}

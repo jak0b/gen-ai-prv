@@ -346,6 +346,37 @@ func TestReadServeConfigFromFile(t *testing.T) {
 	}
 }
 
+func TestReadServeConfigIgnoresExtensionlessExecutable(t *testing.T) {
+	dir := t.TempDir()
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(workingDir); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	}()
+	t.Setenv("HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "gen-ai-prv"), []byte{0xff, 0xfe, 0x00}, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := viper.New()
+	settings.SetDefault("host", defaultServeHost)
+	settings.SetDefault("port", defaultServePort)
+	config, err := readServeConfig(settings, "", "", false)
+	if err != nil {
+		t.Fatalf("readServeConfig() error = %v", err)
+	}
+	if config.Host != defaultServeHost || config.Port != defaultServePort {
+		t.Errorf("config = %+v, want default host and port", config)
+	}
+}
+
 func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
 	settings := viper.New()
 	settings.SetDefault("host", defaultServeHost)
