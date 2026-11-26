@@ -33,13 +33,14 @@ function fileType(file) {
 }
 
 input.addEventListener("change", () => {
+  const previousEntries = resourceEntries();
   const available = Math.max(0, maxResources - resourceEntries().length);
   const addedFiles = Array.from(input.files).slice(0, available);
   localFiles = [...localFiles, ...addedFiles];
   if (input.files.length > available) {
     status.textContent = `Only ${maxResources} resources can be checked at once.`;
   }
-  renderSelection();
+  renderSelection(previousEntries);
 });
 
 fetchButton.addEventListener("click", async () => {
@@ -80,11 +81,12 @@ fetchButton.addEventListener("click", async () => {
     }
 
     const blob = await response.blob();
+    const previousEntries = resourceEntries();
     const name = response.headers.get("X-Resource-Name") || "resource";
     const file = new File([blob], name, { type: blob.type });
     remoteResources.push({ file, sourceUrl: resourceUrl });
     urlInput.value = "";
-    renderSelection();
+    renderSelection(previousEntries);
     status.textContent = `Fetched and validated ${name}. It is held in memory until you leave or reload this page.`;
   } catch (error) {
     status.textContent = error instanceof Error
@@ -103,13 +105,14 @@ list.addEventListener("click", (event) => {
   const button = event.target.closest(".remove-resource");
   if (!button) return;
 
+  const previousEntries = resourceEntries();
   const index = Number(button.dataset.resourceIndex);
   if (index < localFiles.length) {
     localFiles.splice(index, 1);
   } else {
     remoteResources.splice(index - localFiles.length, 1);
   }
-  renderSelection();
+  renderSelection(previousEntries);
 });
 
 form.addEventListener("submit", async (event) => {
@@ -173,8 +176,7 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-function renderSelection() {
-  const previousEntries = resourceEntries();
+function renderSelection(previousEntries = resourceEntries()) {
   const previouslyPresent = new Set(previousEntries.map(({ file }) => file));
   const previouslySelected = new Set(
     Array.from(list.querySelectorAll('input[type="checkbox"]:checked'))
