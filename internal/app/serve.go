@@ -103,7 +103,7 @@ func runServeCommand(config serveConfig, webFiles fs.FS) error {
 	}
 
 	envAPIKey, envSet := os.LookupEnv(apiKeyName)
-	apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, func() (string, error) {
+	apiKey, source, err := resolveServeAPIKey(envAPIKey, envSet, isRunningInContainer(), osAPIKeyStore{}, func() (string, error) {
 		return "", fmt.Errorf("no API key available; set %s or save one in the OS keyring", apiKeyName)
 	})
 	if err != nil {
@@ -130,4 +130,14 @@ func runServeCommand(config serveConfig, webFiles fs.FS) error {
 		return fmt.Errorf("start server: %w", serveErr)
 	}
 	return nil
+}
+
+func resolveServeAPIKey(envValue string, envSet, inContainer bool, store apiKeyStore, fallback func() (string, error)) (string, apiKeySource, error) {
+	if inContainer {
+		if apiKey := strings.TrimSpace(envValue); envSet && apiKey != "" {
+			return apiKey, apiKeySourceEnvironment, nil
+		}
+		return "", "", fmt.Errorf("%s must be set in the environment when running in a container", apiKeyName)
+	}
+	return resolveAPIKey(envValue, envSet, store, fallback)
 }
