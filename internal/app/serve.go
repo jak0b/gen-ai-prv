@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,21 +22,19 @@ const (
 
 func newServeCommand(webFiles fs.FS) *cobra.Command {
 	settings := viper.New()
-	var configFile string
 	var addr string
 	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web interface",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			config, err := readServeConfig(settings, configFile, addr, command.Flags().Changed("addr"))
+			config, err := readServeConfig(settings, addr, command.Flags().Changed("addr"))
 			if err != nil {
 				return err
 			}
 			return runServeCommand(config, webFiles)
 		},
 	}
-	command.Flags().StringVar(&configFile, "config", "", "path to YAML server configuration file")
 	command.Flags().String("host", defaultServeHost, "host interface to listen on")
 	command.Flags().Int("port", defaultServePort, "port to listen on")
 	command.Flags().String("tls-cert", "", "TLS certificate file (enables HTTPS with --tls-key)")
@@ -56,42 +53,7 @@ func newServeCommand(webFiles fs.FS) *cobra.Command {
 	return command
 }
 
-func readServeConfig(settings *viper.Viper, configFile, addr string, addrSet bool) (serveConfig, error) {
-	readConfig := configFile != ""
-	if configFile != "" {
-		settings.SetConfigFile(configFile)
-	} else {
-		configPaths := []string{"."}
-		if home, err := os.UserHomeDir(); err == nil {
-			configPaths = append(configPaths,
-				filepath.Join(home, ".config", "gen-ai-prv"),
-				home,
-			)
-		}
-		for _, directory := range configPaths {
-			for _, name := range []string{"gen-ai-prv.yaml", "gen-ai-prv.yml"} {
-				path := filepath.Join(directory, name)
-				info, err := os.Stat(path)
-				if err == nil && !info.IsDir() {
-					settings.SetConfigFile(path)
-					readConfig = true
-					break
-				}
-				if err != nil && !os.IsNotExist(err) {
-					return serveConfig{}, fmt.Errorf("inspect server configuration %q: %w", path, err)
-				}
-			}
-			if readConfig {
-				break
-			}
-		}
-	}
-	if readConfig {
-		if err := settings.ReadInConfig(); err != nil {
-			return serveConfig{}, fmt.Errorf("read server configuration: %w", err)
-		}
-	}
-
+func readServeConfig(settings *viper.Viper, addr string, addrSet bool) (serveConfig, error) {
 	config := serveConfig{
 		Host:    settings.GetString("host"),
 		Port:    settings.GetInt("port"),

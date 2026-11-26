@@ -339,68 +339,11 @@ func TestServeHandlerDoesNotRegisterLegacyCheckRoute(t *testing.T) {
 	}
 }
 
-func TestReadServeConfigFromFile(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "server.yaml")
-	configData := []byte("host: 0.0.0.0\nport: 9443\ntls-cert: server.crt\ntls-key: server.key\n")
-	if err := os.WriteFile(configPath, configData, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	settings := viper.New()
-	settings.SetDefault("host", defaultServeHost)
-	settings.SetDefault("port", defaultServePort)
-	config, err := readServeConfig(settings, configPath, "", false)
-	if err != nil {
-		t.Fatalf("readServeConfig() error = %v", err)
-	}
-	if config != (serveConfig{Host: "0.0.0.0", Port: 9443, TLSCert: "server.crt", TLSKey: "server.key"}) {
-		t.Errorf("readServeConfig() = %+v, want values from config file", config)
-	}
-	if got := config.address(); got != "0.0.0.0:9443" {
-		t.Errorf("address() = %q, want 0.0.0.0:9443", got)
-	}
-}
-
-func TestReadServeConfigIgnoresExtensionlessExecutable(t *testing.T) {
-	dir := t.TempDir()
-	workingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(workingDir); err != nil {
-			t.Errorf("restore working directory: %v", err)
-		}
-	}()
-	t.Setenv("HOME", dir)
-	if err := os.WriteFile(filepath.Join(dir, "gen-ai-prv"), []byte{0xff, 0xfe, 0x00}, 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	settings := viper.New()
-	settings.SetDefault("host", defaultServeHost)
-	settings.SetDefault("port", defaultServePort)
-	config, err := readServeConfig(settings, "", "", false)
-	if err != nil {
-		t.Fatalf("readServeConfig() error = %v", err)
-	}
-	if config.Host != defaultServeHost || config.Port != defaultServePort {
-		t.Errorf("config = %+v, want default host and port", config)
-	}
-}
-
 func TestReadServeConfigSupportsIPv6LegacyAddress(t *testing.T) {
 	settings := viper.New()
 	settings.SetDefault("host", defaultServeHost)
 	settings.SetDefault("port", defaultServePort)
-	configPath := filepath.Join(t.TempDir(), "server.yaml")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	config, err := readServeConfig(settings, configPath, "[::1]:9090", true)
+	config, err := readServeConfig(settings, "[::1]:9090", true)
 	if err != nil {
 		t.Fatalf("readServeConfig() error = %v", err)
 	}
@@ -450,16 +393,27 @@ func TestRunServeCommandValidatesServerSettings(t *testing.T) {
 	}
 }
 
-func TestServeCommandUsesViperBoundFlags(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "server.yaml")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
-		t.Fatal(err)
+func TestServeCommandAcceptsFlagsAndEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		env  string
+	}{
+		{name: "flag", args: []string{"--port", "0"}},
+		{name: "environment", env: "0"},
 	}
-	command := newServeCommand(testWebFiles)
-	command.SetArgs([]string{"--config", configPath, "--host", "localhost", "--port", "0"})
-	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "server port must be between 1 and 65535") {
-		t.Fatalf("Execute() error = %v, want invalid port validation", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.env != "" {
+				t.Setenv("GEN_AI_PRV_PORT", test.env)
+			}
+			command := newServeCommand(testWebFiles)
+			command.SetArgs(test.args)
+			err := command.Execute()
+			if err == nil || !strings.Contains(err.Error(), "server port must be between 1 and 65535") {
+				t.Fatalf("Execute() error = %v, want invalid port validation", err)
+			}
+		})
 	}
 }
 

@@ -56,21 +56,10 @@ TLS certificate/key with flags:
 
 Use `--host :` to listen on all interfaces (dual-stack where supported). Only
 expose the server on a trusted network; use TLS beyond the local machine.
-Options can also be set in `gen-ai-prv.yaml` or `.yml` in the current directory,
-`~/.config/gen-ai-prv/`, or the home directory; select another file with
-`--config`. Example:
-
-```yaml
-host: 127.0.0.1
-port: 8443
-tls-cert: server.crt
-tls-key: server.key
-```
-
 Precedence is flags, `GEN_AI_PRV_HOST`, `GEN_AI_PRV_PORT`,
-`GEN_AI_PRV_TLS_CERT`, `GEN_AI_PRV_TLS_KEY`, then config file. Deprecated
-`--addr` remains supported. At startup, the server reports whether the API key
-came from the environment or keyring.
+`GEN_AI_PRV_TLS_CERT`, and `GEN_AI_PRV_TLS_KEY`. Deprecated `--addr` remains
+supported. At startup, the server reports whether the API key came from the
+environment or keyring.
 
 ## Supported files and privacy
 
