@@ -5,13 +5,27 @@ import (
 	"io"
 )
 
-func printSummary(w io.Writer, result checkResponse) {
+func printSummary(w io.Writer, result checkResponse, color bool) {
 	detected := false
 	for _, item := range result.Results {
 		if item.Outcome == "detected" {
 			detected = true
 		}
 	}
+
+	message := "PROVENANCE SIGNAL NOT DETECTED"
+	if detected {
+		message = "PROVENANCE SIGNAL DETECTED"
+	}
+	if color {
+		colorCode := "32"
+		if detected {
+			colorCode = "31"
+		}
+		message = fmt.Sprintf("\033[%sm%s\033[0m", colorCode, message)
+	}
+	fmt.Fprintln(w, message)
+
 	if detected {
 		fmt.Fprintln(w, "Supported OpenAI provenance signal detected.")
 	} else {

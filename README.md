@@ -29,7 +29,7 @@ Print the full API response as JSON:
 
 Supported extensions are PNG, JPG/JPEG, WebP, GIF, MP3, Opus, AAC, FLAC, WAV, PCM, and PDF. Uploads are limited to 50 MiB. Audio must be 60 seconds or shorter after decoding. The CLI sets the media type from the file extension (Opus uses `audio/ogg`) and uploads the file with a generic ASCII filename to support paths containing spaces or Unicode.
 
-The command prints a concise interpretation by default and returns a nonzero exit status for usage, file, or API errors. It does not treat `not_detected` as proof that content is human-created.
+The command prints a concise colored provenance-signal result followed by the detailed summary by default (green when no signal is detected, red when one is detected; color is used in a terminal) and returns a nonzero exit status for usage, file, or API errors. It does not treat `not_detected` as proof that content is human-created.
 
 ## Development
 

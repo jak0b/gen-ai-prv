@@ -89,7 +89,7 @@ func main() {
 		return
 	}
 
-	printSummary(os.Stdout, result)
+	printSummary(os.Stdout, result, term.IsTerminal(int(os.Stdout.Fd())))
 }
 
 func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func() (string, error)) (string, apiKeySource, error) {
