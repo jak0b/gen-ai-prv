@@ -94,6 +94,11 @@ podman build -f Containerfile .
 The `scratch` image runs as non-root and has no OS keyring; pass the API key
 through the environment.
 
+Publishing a GitHub release builds and attaches Linux, macOS, and Windows
+binaries for amd64 and arm64, along with SHA-256 checksums. It also publishes
+multi-architecture (`linux/amd64` and `linux/arm64`) images to GitHub Container
+Registry, tagged with the release tag and `latest`.
+
 ## Development
 
 ```sh
