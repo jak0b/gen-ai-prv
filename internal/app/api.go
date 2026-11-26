@@ -48,66 +48,114 @@ func checkFileAt(ctx context.Context, path, apiKey, endpoint string) (checkRespo
 	}
 	defer file.Close()
 
-	pr, pw := io.Pipe()
-	writer := multipart.NewWriter(pw)
-	go func() {
-		header := make(textproto.MIMEHeader)
-		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
-			"name":     "file",
-			"filename": uploadFilename(path),
-		}))
-		header.Set("Content-Type", contentType)
-		part, createErr := writer.CreatePart(header)
-		if createErr == nil {
-			_, createErr = io.CopyN(part, file, size)
-		}
-		if createErr == nil {
-			createErr = writer.Close()
-		}
-		_ = pw.CloseWithError(createErr)
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, pr)
+	body, multipartContentType := newMultipartFileBody(file, path, size, contentType)
+	req, err := newAPIRequest(ctx, endpoint, apiKey, body, multipartContentType)
 	if err != nil {
-		_ = pr.Close()
+		_ = body.Close()
 		return checkResponse{}, fmt.Errorf("create API request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{Timeout: 2 * time.Minute}
-	apiTarget := req.URL.Host + req.URL.EscapedPath()
-	resp, err := client.Do(req)
+	resp, err := sendAPIRequest(ctx, req)
 	if err != nil {
-		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s failed", req.Method, apiTarget))
-		return checkResponse{}, fmt.Errorf("send API request: %w", err)
+		return checkResponse{}, err
 	}
 	defer resp.Body.Close()
 
+	return decodeCheckResponse(ctx, req, resp)
+}
+
+func newMultipartFileBody(file io.Reader, path string, size int64, contentType string) (*io.PipeReader, string) {
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	// Stream the multipart body through the pipe so the full file is not buffered in memory.
+	go writeMultipartFile(pw, writer, file, path, size, contentType)
+	return pr, writer.FormDataContentType()
+}
+
+func writeMultipartFile(pipe *io.PipeWriter, writer *multipart.Writer, file io.Reader, path string, size int64, contentType string) {
+	err := writeFilePart(writer, file, path, size, contentType)
+	_ = pipe.CloseWithError(err)
+}
+
+func writeFilePart(writer *multipart.Writer, file io.Reader, path string, size int64, contentType string) error {
+	part, err := writer.CreatePart(filePartHeader(path, contentType))
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.CopyN(part, file, size); err != nil {
+		return err
+	}
+	return writer.Close()
+}
+
+func filePartHeader(path, contentType string) textproto.MIMEHeader {
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+		"name":     "file",
+		"filename": uploadFilename(path),
+	}))
+	header.Set("Content-Type", contentType)
+	return header
+}
+
+func newAPIRequest(ctx context.Context, endpoint, apiKey string, body io.Reader, contentType string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", contentType)
+	return req, nil
+}
+
+func sendAPIRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s failed", req.Method, apiRequestTarget(req)))
+		return nil, fmt.Errorf("send API request: %w", err)
+	}
+	return resp, nil
+}
+
+func decodeCheckResponse(ctx context.Context, req *http.Request, resp *http.Response) (checkResponse, error) {
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s", req.Method, apiTarget, resp.Status))
-		var apiErr apiErrorResponse
-		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
-			if apiErr.Error.Code != "" {
-				return checkResponse{}, fmt.Errorf("OpenAI API returned %s (%s): %s", resp.Status, apiErr.Error.Code, apiErr.Error.Message)
-			}
-			return checkResponse{}, fmt.Errorf("OpenAI API returned %s: %s", resp.Status, apiErr.Error.Message)
-		}
-		return checkResponse{}, fmt.Errorf("OpenAI API returned %s", resp.Status)
+		return checkResponse{}, apiResponseError(ctx, req, resp)
 	}
 
 	var result checkResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=decode_error", req.Method, apiTarget, resp.Status))
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=decode_error", req.Method, apiRequestTarget(req), resp.Status))
 		return checkResponse{}, fmt.Errorf("decode API response: %w", err)
 	}
-	if resultJSON, err := json.Marshal(result); err == nil {
-		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=%s", req.Method, apiTarget, resp.Status, resultJSON))
-	} else {
-		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=unavailable", req.Method, apiTarget, resp.Status))
-	}
+	logSuccessfulAPIResponse(ctx, req, resp, result)
 	return result, nil
+}
+
+func apiResponseError(ctx context.Context, req *http.Request, resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s", req.Method, apiRequestTarget(req), resp.Status))
+	var apiErr apiErrorResponse
+	if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
+		if apiErr.Error.Code != "" {
+			return fmt.Errorf("OpenAI API returned %s (%s): %s", resp.Status, apiErr.Error.Code, apiErr.Error.Message)
+		}
+		return fmt.Errorf("OpenAI API returned %s: %s", resp.Status, apiErr.Error.Message)
+	}
+	return fmt.Errorf("OpenAI API returned %s", resp.Status)
+}
+
+func logSuccessfulAPIResponse(ctx context.Context, req *http.Request, resp *http.Response, result checkResponse) {
+	if resultJSON, err := json.Marshal(result); err == nil {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=%s", req.Method, apiRequestTarget(req), resp.Status, resultJSON))
+	} else {
+		logOpenAIAPIRequest(ctx, fmt.Sprintf("%s %s status=%s result=unavailable", req.Method, apiRequestTarget(req), resp.Status))
+	}
+}
+
+func apiRequestTarget(req *http.Request) string {
+	return req.URL.Host + req.URL.EscapedPath()
 }
 
 func logOpenAIAPIRequest(ctx context.Context, details string) {
