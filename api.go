@@ -37,6 +37,10 @@ type apiErrorResponse struct {
 }
 
 func checkFile(ctx context.Context, path, apiKey string) (checkResponse, error) {
+	return checkFileAt(ctx, path, apiKey, apiEndpoint)
+}
+
+func checkFileAt(ctx context.Context, path, apiKey, endpoint string) (checkResponse, error) {
 	file, size, contentType, err := openSourceFile(path)
 	if err != nil {
 		return checkResponse{}, err
@@ -62,7 +66,7 @@ func checkFile(ctx context.Context, path, apiKey string) (checkResponse, error) 
 		_ = pw.CloseWithError(createErr)
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiEndpoint, pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, pr)
 	if err != nil {
 		_ = pr.Close()
 		return checkResponse{}, fmt.Errorf("create API request: %w", err)

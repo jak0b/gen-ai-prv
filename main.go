@@ -43,13 +43,21 @@ func (osAPIKeyStore) Set(service, user, password string) error {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		if err := serveCommand(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	jsonOutput := flag.Bool("json", false, "print the complete API response as JSON")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <image|audio|pdf>...\n\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <image|audio|pdf>...\n       %s serve [flags]\n\n", filepath.Base(os.Args[0]), filepath.Base(os.Args[0]))
 		fmt.Fprintln(flag.CommandLine.Output(), "Check files for supported OpenAI provenance signals.")
 		fmt.Fprintln(flag.CommandLine.Output(), "\nFlags:")
 		flag.PrintDefaults()
-		fmt.Fprintln(flag.CommandLine.Output(), "\nSet OPENAI_API_KEY to your OpenAI API key.")
+		fmt.Fprintln(flag.CommandLine.Output(), "\nSet OPENAI_API_KEY to your OpenAI API key. Use 'serve' to start the web interface.")
 	}
 	flag.Parse()
 

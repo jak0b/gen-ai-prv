@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -127,6 +132,29 @@ func TestContentTypeForRejectsUnsupportedExtension(t *testing.T) {
 	}
 }
 
+func TestCheckFileReturnsTooManyRequestsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"Rate limit reached","code":"rate_limit_exceeded"}}`))
+	}))
+	defer server.Close()
+
+	path := filepath.Join(t.TempDir(), "image.png")
+	if err := os.WriteFile(path, []byte("image data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := checkFileAt(context.Background(), path, "api-key", server.URL)
+	if err == nil {
+		t.Fatal("checkFileAt() returned no error for HTTP 429")
+	}
+	for _, want := range []string{"429 Too Many Requests", "rate_limit_exceeded", "Rate limit reached"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("checkFileAt() error = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
 func TestCheckFilesChecksEachPath(t *testing.T) {
 	paths := []string{"image.png", "audio.mp3"}
 	var checked []string
@@ -215,5 +243,115 @@ func TestPrintSummaryUsesResultColors(t *testing.T) {
 				t.Errorf("summary = %q, want colored prefix %q", output.String(), test.want)
 			}
 		})
+	}
+}
+
+func TestServeHandlerEmbedsFrontend(t *testing.T) {
+	handler := newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+		t.Fatal("check function called for frontend request")
+		return checkResponse{}, nil
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if !strings.Contains(response.Body.String(), "Drag files here") {
+		t.Fatal("embedded frontend is missing the drag-and-drop file chooser")
+	}
+	if got := response.Header().Get("Content-Security-Policy"); !strings.Contains(got, "style-src 'self'") {
+		t.Errorf("Content-Security-Policy = %q, want local styles only", got)
+	}
+}
+
+func TestServeHandlerChecksUploadedFiles(t *testing.T) {
+	var checkedPath string
+	handler := newServeHandler("api-key", func(_ context.Context, path, apiKey string) (checkResponse, error) {
+		checkedPath = path
+		if apiKey != "api-key" {
+			t.Errorf("API key = %q, want api-key", apiKey)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("uploaded temporary file does not exist: %v", err)
+		}
+		return checkResponse{Results: []checkResult{{Type: "c2pa", Outcome: "detected"}}}, nil
+	})
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("files", "sample.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("image-data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/check", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /check status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if checkedPath == "" {
+		t.Fatal("check function was not called")
+	}
+	if _, err := os.Stat(checkedPath); !os.IsNotExist(err) {
+		t.Errorf("temporary upload still exists after request: stat error = %v", err)
+	}
+	if !strings.Contains(response.Body.String(), "PROVENANCE SIGNAL DETECTED") {
+		t.Errorf("response missing detected result: %q", response.Body.String())
+	}
+}
+
+func TestServeHandlerRequiresUploadedFiles(t *testing.T) {
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/check", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+	newServeHandler("api-key", checkFile).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Choose at least one file") {
+		t.Errorf("POST /check response = %d %q, want missing-file error", response.Code, response.Body.String())
+	}
+}
+
+func TestServeHandlerDisplaysCheckError(t *testing.T) {
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("files", "sample.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("image-data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/check", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+	checkErr := errors.New("OpenAI API returned 429 Too Many Requests (rate_limit_exceeded): Rate limit reached")
+	newServeHandler("api-key", func(context.Context, string, string) (checkResponse, error) {
+		return checkResponse{}, checkErr
+	}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /check status = %d, body = %q", response.Code, response.Body.String())
+	}
+	for _, want := range []string{"Could not check this file.", "429 Too Many Requests", "Rate limit reached"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("response = %q, want it to contain %q", response.Body.String(), want)
+		}
 	}
 }

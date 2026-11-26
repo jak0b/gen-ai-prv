@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Provenance results</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="panel">
+      <p class="eyebrow">GEN-AI-PRV</p>
+      <h1>Check results</h1>
+      {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+      {{range .Results}}
+      <section class="result">
+        <h2>{{.File}}</h2>
+        {{if .Error}}
+        <p class="error" role="alert"><strong>Could not check this file.</strong> {{.Error}}</p>
+        {{else}}
+        {{if .Detected}}
+        <p class="status detected">PROVENANCE SIGNAL DETECTED</p>
+        {{else}}
+        <p class="status clear">PROVENANCE SIGNAL NOT DETECTED</p>
+        {{end}}
+        <p class="note">This is not a general-purpose AI detection verdict.</p>
+        {{if .Response.Results}}
+        <ul class="details">
+          {{range .Response.Results}}
+          <li><strong>{{.Type}}:</strong> {{.Outcome}}{{if .ValidationState}} (validation: {{.ValidationState}}){{end}}{{if .Issuer}} · issuer: {{.Issuer}}{{end}}{{if .Model}} · model: {{.Model}}{{end}}{{if .GeneratedAt}} · generated: {{.GeneratedAt}}{{end}}</li>
+          {{end}}
+        </ul>
+        {{end}}
+        {{end}}
+      </section>
+      {{end}}
+      <a class="back" href="/">Check more files</a>
+    </main>
+  </body>
+</html>
