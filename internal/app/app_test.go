@@ -47,7 +47,7 @@ func TestRootCommandHelpIncludesFlagsAndServeCommand(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	for _, want := range []string{"--json", "serve", "Check files for supported OpenAI provenance signals"} {
+	for _, want := range []string{"--json", "serve", "Check local files and HTTP/HTTPS URLs for supported OpenAI provenance signals"} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("help output = %q, want it to contain %q", output.String(), want)
 		}
@@ -61,7 +61,7 @@ func TestRootCommandRequiresFileArguments(t *testing.T) {
 	command.SetErr(&output)
 
 	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "at least one file argument is required") {
+	if err == nil || !strings.Contains(err.Error(), "at least one file or URL argument is required") {
 		t.Fatalf("Execute() error = %v, want missing-file argument error", err)
 	}
 	if !strings.Contains(output.String(), "Usage:") {
@@ -183,5 +183,82 @@ func TestCheckFilesReportsFailingPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), `check "missing.pdf": file not found`) {
 		t.Fatalf("checkFiles() error = %v, want failing path and cause", err)
+	}
+}
+
+func TestCheckInputsFetchesURLsAndChecksFiles(t *testing.T) {
+	inputs := []string{
+		"./image.png",
+		"https://example.test/remote.png",
+		"./document.pdf",
+		"http://cdn.example.test/second.jpg",
+	}
+	var checkedFiles []string
+	var fetchedURLs []string
+	var uploaded []string
+
+	results, err := checkInputs(
+		context.Background(),
+		inputs,
+		"api-key",
+		func(_ context.Context, path, _ string) (checkResponse, error) {
+			checkedFiles = append(checkedFiles, path)
+			return checkResponse{Object: path}, nil
+		},
+		func(_ context.Context, rawURL string) (fetchedResource, error) {
+			fetchedURLs = append(fetchedURLs, rawURL)
+			filename := "remote.png"
+			if strings.HasSuffix(rawURL, "second.jpg") {
+				filename = "second.jpg"
+			}
+			return fetchedResource{filename: filename, data: []byte(rawURL)}, nil
+		},
+		func(_ context.Context, filename string, data []byte, _ string) (checkResponse, error) {
+			uploaded = append(uploaded, filename+":"+string(data))
+			return checkResponse{Object: filename}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("checkInputs() error = %v", err)
+	}
+	if !reflect.DeepEqual(checkedFiles, []string{"./image.png", "./document.pdf"}) {
+		t.Errorf("checked files = %v, want both local files", checkedFiles)
+	}
+	if !reflect.DeepEqual(fetchedURLs, []string{
+		"https://example.test/remote.png",
+		"http://cdn.example.test/second.jpg",
+	}) {
+		t.Errorf("fetched URLs = %v, want both original HTTP(S) URLs in order", fetchedURLs)
+	}
+	if !reflect.DeepEqual(uploaded, []string{
+		"remote.png:https://example.test/remote.png",
+		"second.jpg:http://cdn.example.test/second.jpg",
+	}) {
+		t.Errorf("uploaded data = %v, want both fetched resources", uploaded)
+	}
+	if len(results) != len(inputs) {
+		t.Fatalf("got %d results, want %d", len(results), len(inputs))
+	}
+	for i, input := range inputs {
+		if results[i].File != input {
+			t.Errorf("result %d label = %q, want original input %q", i, results[i].File, input)
+		}
+	}
+}
+
+func TestCheckInputsReportsFetchErrorWithURL(t *testing.T) {
+	const input = "https://example.test/image.png"
+	_, err := checkInputs(
+		context.Background(),
+		[]string{input},
+		"api-key",
+		nil,
+		func(context.Context, string) (fetchedResource, error) {
+			return fetchedResource{}, errors.New("download failed")
+		},
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), `check "`+input+`": download failed`) {
+		t.Fatalf("checkInputs() error = %v, want URL and fetch error", err)
 	}
 }

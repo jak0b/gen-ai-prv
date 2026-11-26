@@ -54,15 +54,15 @@ func newRootCommand(webFiles fs.FS) *cobra.Command {
 	settings := newAppSettings()
 
 	root := &cobra.Command{
-		Use:           "gen-ai-prv [flags] <image|audio|pdf>...",
-		Short:         "Check files for supported OpenAI provenance signals",
-		Long:          "Check files for supported OpenAI provenance signals.\n\nSet OPENAI_API_KEY to your OpenAI API key. Use 'serve' to start the web interface.",
+		Use:           "gen-ai-prv [flags] <file|url>...",
+		Short:         "Check files and URLs for supported OpenAI provenance signals",
+		Long:          "Check local files and HTTP/HTTPS URLs for supported OpenAI provenance signals.\n\nSet OPENAI_API_KEY to your OpenAI API key. Use 'serve' to start the web interface.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args: func(cmd *cobra.Command, paths []string) error {
 			if len(paths) == 0 {
 				_ = cmd.Usage()
-				return fmt.Errorf("at least one file argument is required")
+				return fmt.Errorf("at least one file or URL argument is required")
 			}
 			return nil
 		},
@@ -73,7 +73,7 @@ func newRootCommand(webFiles fs.FS) *cobra.Command {
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), apiKeySourceMessage(source))
 
-			results, err := checkFiles(context.Background(), paths, apiKey, checkFile)
+			results, err := checkInputs(context.Background(), paths, apiKey, checkFile, fetchRemoteResource, checkUploadedFileData)
 			if err != nil {
 				return err
 			}
@@ -148,6 +148,37 @@ func checkFiles(ctx context.Context, paths []string, apiKey string, check fileCh
 			return nil, fmt.Errorf("check %q: %w", path, err)
 		}
 		results = append(results, fileCheckResult{File: path, Response: response})
+	}
+	return results, nil
+}
+
+func checkInputs(
+	ctx context.Context,
+	inputs []string,
+	apiKey string,
+	checkFile fileCheckFunc,
+	fetch resourceFetchFunc,
+	checkData uploadedFileCheckFunc,
+) ([]fileCheckResult, error) {
+	results := make([]fileCheckResult, 0, len(inputs))
+	for _, input := range inputs {
+		var (
+			response checkResponse
+			err      error
+		)
+		if strings.Contains(input, "://") {
+			resource, fetchErr := fetch(ctx, input)
+			if fetchErr != nil {
+				return nil, fmt.Errorf("check %q: %w", input, fetchErr)
+			}
+			response, err = checkData(ctx, resource.filename, resource.data, apiKey)
+		} else {
+			response, err = checkFile(ctx, input, apiKey)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("check %q: %w", input, err)
+		}
+		results = append(results, fileCheckResult{File: input, Response: response})
 	}
 	return results, nil
 }

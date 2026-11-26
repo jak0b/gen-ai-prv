@@ -28,10 +28,16 @@ environment or keyring but does not prompt.
 
 ```sh
 ./gen-ai-prv ./image.png ./audio.mp3 ./document.pdf
+./gen-ai-prv https://example.com/image.png
+./gen-ai-prv ./one.png https://example.com/two.jpg ./three.pdf http://cdn.example.com/four.webp
 ./gen-ai-prv -json ./document.pdf
 ```
 
-Each file gets a separate API request. Default output shows a concise
+Pass any number of local files and HTTP/HTTPS URLs in the same invocation;
+each input is checked separately in argument order. URLs are fetched
+using the same public-host, supported-format, and 50 MiB safeguards as the web
+app, then checked from memory. Each input gets a separate API request. Default
+output shows a concise
 detected/not-detected status (colored in terminals) and detailed results;
 errors return a nonzero status. `-json` prints the API response for one file, or
 an array of `{ "file": ..., "response": ... }` objects for multiple files.
