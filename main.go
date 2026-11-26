@@ -19,6 +19,14 @@ const (
 	apiKeyName     = "OPENAI_API_KEY"
 )
 
+type apiKeySource string
+
+const (
+	apiKeySourceEnvironment apiKeySource = "environment"
+	apiKeySourceKeyring     apiKeySource = "keyring"
+	apiKeySourcePrompt      apiKeySource = "interactive prompt"
+)
+
 type apiKeyStore interface {
 	Get(service, user string) (string, error)
 	Set(service, user, password string) error
@@ -51,10 +59,18 @@ func main() {
 	}
 
 	envAPIKey, envSet := os.LookupEnv(apiKeyName)
-	apiKey, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
+	apiKey, source, err := resolveAPIKey(envAPIKey, envSet, osAPIKeyStore{}, promptForAPIKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+	switch source {
+	case apiKeySourceEnvironment:
+		fmt.Fprintf(os.Stderr, "Using API key from environment variable %s.\n", apiKeyName)
+	case apiKeySourceKeyring:
+		fmt.Fprintln(os.Stderr, "Using API key from OS keyring.")
+	case apiKeySourcePrompt:
+		fmt.Fprintln(os.Stderr, "Using interactively entered API key (saved to OS keyring).")
 	}
 
 	result, err := checkFile(context.Background(), flag.Arg(0), apiKey)
@@ -76,33 +92,33 @@ func main() {
 	printSummary(os.Stdout, result)
 }
 
-func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func() (string, error)) (string, error) {
+func resolveAPIKey(envValue string, envSet bool, store apiKeyStore, prompt func() (string, error)) (string, apiKeySource, error) {
 	if envSet {
 		if apiKey := strings.TrimSpace(envValue); apiKey != "" {
-			return apiKey, nil
+			return apiKey, apiKeySourceEnvironment, nil
 		}
 	}
 
 	apiKey, err := store.Get(keyringService, apiKeyName)
 	if err == nil && strings.TrimSpace(apiKey) != "" {
-		return strings.TrimSpace(apiKey), nil
+		return strings.TrimSpace(apiKey), apiKeySourceKeyring, nil
 	}
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return "", fmt.Errorf("read API key from OS keyring: %w", err)
+		return "", "", fmt.Errorf("read API key from OS keyring: %w", err)
 	}
 
 	apiKey, err = prompt()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", fmt.Errorf("API key cannot be empty")
+		return "", "", fmt.Errorf("API key cannot be empty")
 	}
 	if err := store.Set(keyringService, apiKeyName, apiKey); err != nil {
-		return "", fmt.Errorf("save API key to OS keyring: %w", err)
+		return "", "", fmt.Errorf("save API key to OS keyring: %w", err)
 	}
-	return apiKey, nil
+	return apiKey, apiKeySourcePrompt, nil
 }
 
 func promptForAPIKey() (string, error) {

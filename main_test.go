@@ -35,7 +35,7 @@ func TestResolveAPIKeyPrefersEnvironment(t *testing.T) {
 	store := &fakeAPIKeyStore{key: "keyring-key"}
 	promptCalled := false
 
-	got, err := resolveAPIKey(" env-key ", true, store, func() (string, error) {
+	got, source, err := resolveAPIKey(" env-key ", true, store, func() (string, error) {
 		promptCalled = true
 		return "", nil
 	})
@@ -44,6 +44,9 @@ func TestResolveAPIKeyPrefersEnvironment(t *testing.T) {
 	}
 	if got != "env-key" {
 		t.Errorf("resolveAPIKey() = %q, want env-key", got)
+	}
+	if source != apiKeySourceEnvironment {
+		t.Errorf("resolveAPIKey() source = %q, want %q", source, apiKeySourceEnvironment)
 	}
 	if promptCalled || store.setCalled {
 		t.Fatal("environment key should bypass prompting and keyring writes")
@@ -54,7 +57,7 @@ func TestResolveAPIKeyUsesSavedKey(t *testing.T) {
 	store := &fakeAPIKeyStore{key: " saved-key "}
 	promptCalled := false
 
-	got, err := resolveAPIKey("", false, store, func() (string, error) {
+	got, source, err := resolveAPIKey("", false, store, func() (string, error) {
 		promptCalled = true
 		return "", nil
 	})
@@ -64,6 +67,9 @@ func TestResolveAPIKeyUsesSavedKey(t *testing.T) {
 	if got != "saved-key" {
 		t.Errorf("resolveAPIKey() = %q, want saved-key", got)
 	}
+	if source != apiKeySourceKeyring {
+		t.Errorf("resolveAPIKey() source = %q, want %q", source, apiKeySourceKeyring)
+	}
 	if promptCalled {
 		t.Fatal("prompt called despite a saved key")
 	}
@@ -71,7 +77,7 @@ func TestResolveAPIKeyUsesSavedKey(t *testing.T) {
 
 func TestResolveAPIKeyPromptsAndSaves(t *testing.T) {
 	store := &fakeAPIKeyStore{getErr: keyring.ErrNotFound}
-	got, err := resolveAPIKey("", false, store, func() (string, error) {
+	got, source, err := resolveAPIKey("", false, store, func() (string, error) {
 		return " prompted-key ", nil
 	})
 	if err != nil {
@@ -79,6 +85,9 @@ func TestResolveAPIKeyPromptsAndSaves(t *testing.T) {
 	}
 	if got != "prompted-key" || store.key != "prompted-key" || !store.setCalled {
 		t.Fatalf("resolveAPIKey() = %q, saved key = %q, setCalled = %v", got, store.key, store.setCalled)
+	}
+	if source != apiKeySourcePrompt {
+		t.Errorf("resolveAPIKey() source = %q, want %q", source, apiKeySourcePrompt)
 	}
 	if store.service != "com.jak0b.gen-ai-prv" || store.account != "OPENAI_API_KEY" {
 		t.Errorf("keyring coordinates = (%q, %q), want (com.jak0b.gen-ai-prv, OPENAI_API_KEY)", store.service, store.account)
