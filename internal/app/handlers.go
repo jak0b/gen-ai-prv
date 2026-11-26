@@ -54,48 +54,65 @@ func appendServeRequestAPILog(ctx context.Context, call string) bool {
 	return true
 }
 
+type serveHandler struct {
+	apiKey      string
+	check       fileCheckFunc
+	staticFiles http.Handler
+	mux         *http.ServeMux
+}
+
 func newServeHandler(apiKey string, check fileCheckFunc, webFiles fs.FS) http.Handler {
 	webDir, err := fs.Sub(webFiles, "web")
 	if err != nil {
 		panic(err)
 	}
-	staticFiles := http.FileServer(http.FS(webDir))
 
-	mux := http.NewServeMux()
-	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		setServeHeaders(w)
-		staticFiles.ServeHTTP(w, r)
-	}))
-	mux.HandleFunc("POST /api/check", func(w http.ResponseWriter, r *http.Request) {
-		setServeHeaders(w)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		result, message, status := checkSingleUploadedFile(w, r, apiKey, check)
-		w.WriteHeader(status)
-		if message != "" {
-			_ = json.NewEncoder(w).Encode(struct {
-				Error string `json:"error"`
-			}{Error: message})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(result)
-	})
+	handler := &serveHandler{
+		apiKey:      apiKey,
+		check:       check,
+		staticFiles: http.FileServer(http.FS(webDir)),
+		mux:         http.NewServeMux(),
+	}
+	handler.mux.Handle("GET /", http.HandlerFunc(handler.serveStatic))
+	handler.mux.HandleFunc("POST /api/check", handler.checkUpload)
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestLog := &serveRequestLog{}
-		r = r.WithContext(context.WithValue(r.Context(), serveRequestLogContextKey{}, requestLog))
-		response := &serveResponseWriter{ResponseWriter: w}
-		mux.ServeHTTP(response, r)
-		if response.status == 0 {
-			response.status = http.StatusOK
-		}
-		apiCallSnapshot := requestLog.apiCallSnapshot()
-		apiCalls, _ := json.Marshal(apiCallSnapshot)
-		if len(apiCallSnapshot) > 0 {
-			log.Printf("Incoming request: %s %s %d openai_calls=%s", r.Method, r.URL.Path, response.status, apiCalls)
-			return
-		}
-		log.Printf("Incoming request: %s %s %d", r.Method, r.URL.Path, response.status)
-	})
+	return handler
+}
+
+func (h *serveHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
+	setServeHeaders(w)
+	h.staticFiles.ServeHTTP(w, r)
+}
+
+func (h *serveHandler) checkUpload(w http.ResponseWriter, r *http.Request) {
+	setServeHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	result, message, status := checkSingleUploadedFile(w, r, h.apiKey, h.check)
+	w.WriteHeader(status)
+	if message != "" {
+		_ = json.NewEncoder(w).Encode(struct {
+			Error string `json:"error"`
+		}{Error: message})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (h *serveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	requestLog := &serveRequestLog{}
+	r = r.WithContext(context.WithValue(r.Context(), serveRequestLogContextKey{}, requestLog))
+	response := &serveResponseWriter{ResponseWriter: w}
+	h.mux.ServeHTTP(response, r)
+	if response.status == 0 {
+		response.status = http.StatusOK
+	}
+	apiCallSnapshot := requestLog.apiCallSnapshot()
+	apiCalls, _ := json.Marshal(apiCallSnapshot)
+	if len(apiCallSnapshot) > 0 {
+		log.Printf("Incoming request: %s %s %d openai_calls=%s", r.Method, r.URL.Path, response.status, apiCalls)
+		return
+	}
+	log.Printf("Incoming request: %s %s %d", r.Method, r.URL.Path, response.status)
 }
 
 type serveResponseWriter struct {
