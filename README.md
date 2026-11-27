@@ -42,6 +42,8 @@ detected/not-detected status (colored in terminals) and detailed results;
 errors return a nonzero status. `-json` prints the API response for one file, or
 an array of `{ "file": ..., "response": ... }` objects for multiple files.
 
+![Terminal client example](assets/terminal-client.png)
+
 ## Web app
 
 ```sh
@@ -53,6 +55,8 @@ and drag in files, choose which resources to check, and view results as each
 resource is checked individually. URL downloads are limited to supported file
 formats and 50 MiB, and are held in memory by the browser until you leave or
 reload the page. The HTML and assets are embedded in the executable.
+
+![Web app screenshot](assets/web-client.png)
 
 The default listener is `127.0.0.1:8080`. Configure the host/port and optional
 TLS certificate/key with flags:
