@@ -5,6 +5,10 @@ PDFs to OpenAI's [Content Provenance API](https://developers.openai.com/api/docs
 and displays supported provenance signals (such as C2PA and SynthID), outcomes,
 and available metadata. It does not analyze arbitrary text.
 
+`gen-ai-prv` is a thin wrapper around OpenAI's Content Provenance API. It
+submits supported files and presents the API's results; it does not perform its
+own provenance analysis.
+
 **This is not a general-purpose AI detector.** `not_detected` means only that
 the API found no supported signal; it does not prove content is human-made or
 not AI-generated.
